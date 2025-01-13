@@ -17,8 +17,8 @@
 #include <QProcess>
 
 #include "3rdparty/qv2ray/wrapper.hpp"
-#include "fmt/Preset.hpp"
-#include "main/NekoGui.hpp"
+#include "include/configs/proxy/Preset.hpp"
+#include "include/global/NekoGui.hpp"
 
 #define QV_MODULE_NAME "SystemProxy"
 
@@ -253,7 +253,7 @@ namespace Qv2ray::components::proxy {
 #endif
 
 #ifdef Q_OS_WIN
-        QString str = "socks={ip}:{socks_port}";
+        QString str = "http://{ip}:{socks_port}";
         str = str.replace("{ip}", address)
                   .replace("{socks_port}", Int2String(socksPort));
         //

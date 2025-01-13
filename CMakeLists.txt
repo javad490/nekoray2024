@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.9)
+cmake_minimum_required(VERSION 3.10)
 
 project(nekoray VERSION 0.1 LANGUAGES CXX)
 
@@ -6,9 +6,12 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
+if (NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND WIN32)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+endif ()
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Svg LinguistTools QuickControls2)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network LinguistTools)
 
 if (NKR_CROSS)
     set_property(TARGET Qt6::moc PROPERTY IMPORTED_LOCATION /usr/bin/moc)
@@ -46,6 +49,7 @@ message("[CMAKE_FIND_ROOT_PATH] ${CMAKE_FIND_ROOT_PATH}")
 
 include("cmake/print.cmake")
 include("cmake/nkr.cmake")
+include("cmake/QHotkey.cmake")
 
 find_package(Threads)
 
@@ -65,19 +69,17 @@ list(APPEND NKR_EXTERNAL_TARGETS ZXing::ZXing)
 find_package(cpr REQUIRED)
 list(APPEND NKR_EXTERNAL_TARGETS cpr::cpr)
 
-set(QHOTKEY_INSTALL OFF)
 set(BUILD_SHARED_LIBS OFF)
-add_subdirectory(3rdparty/QHotkey)
 list(APPEND NKR_EXTERNAL_TARGETS qhotkey)
 
 # Sources
 set(PROJECT_SOURCES
         ${PLATFORM_SOURCES}
 
-        main/main.cpp
-        main/NekoGui.cpp
-        main/NekoGui_Utils.cpp
-        main/HTTPRequestHelper.cpp
+        src/main.cpp
+        src/global/NekoGui.cpp
+        src/global/NekoGui_Utils.cpp
+        src/global/HTTPRequestHelper.cpp
 
         3rdparty/base64.cpp
         3rdparty/qrcodegen.cpp
@@ -91,113 +93,121 @@ set(PROJECT_SOURCES
         3rdparty/qv2ray/v2/ui/widgets/editors/w_JsonEditor.ui
         3rdparty/qv2ray/v2/proxy/QvProxyConfigurator.cpp
 
-        rpc/gRPC.cpp
+        src/api/gRPC.cpp
 
-        db/Database.cpp
-        db/traffic/TrafficLooper.cpp
-        db/ProfileFilter.cpp
-        db/ConfigBuilder.cpp
+        src/dataStore/Database.cpp
+        src/stats/traffic/TrafficLooper.cpp
+        src/dataStore/ProfileFilter.cpp
+        src/configs/ConfigBuilder.cpp
 
-        fmt/AbstractBean.cpp
-        fmt/Bean2CoreObj_box.cpp
-        fmt/Bean2External.cpp
-        fmt/Bean2Link.cpp
-        fmt/Link2Bean.cpp
-        fmt/ChainBean.hpp # translate
+        src/configs/proxy/AbstractBean.cpp
+        src/configs/proxy/Bean2CoreObj_box.cpp
+        src/configs/proxy/Bean2Link.cpp
+        src/configs/proxy/Link2Bean.cpp
+        include/configs/proxy/ChainBean.hpp # translate
 
-        sub/GroupUpdater.cpp
+        include/configs/sub/GroupUpdater.hpp
+        src/configs/sub/GroupUpdater.cpp
 
-        sys/ExternalProcess.cpp
-        sys/AutoRun.cpp
+        include/sys/Process.hpp
+        src/sys/Process.cpp
+        src/sys/AutoRun.cpp
 
-        ui/ThemeManager.cpp
-        ui/Icon.cpp
+        include/ui/setting/ThemeManager.hpp
+        src/ui/setting/ThemeManager.cpp
+        src/ui/setting/Icon.cpp
 
-        ui/mainwindow_grpc.cpp
-        ui/mainwindow.cpp
-        ui/mainwindow.h
-        ui/mainwindow.ui
+        src/ui/mainwindow_grpc.cpp
+        src/ui/mainwindow.cpp
+        include/ui/mainwindow.h
+        include/ui/mainwindow.ui
 
-        ui/edit/dialog_edit_profile.h
-        ui/edit/dialog_edit_profile.cpp
-        ui/edit/dialog_edit_profile.ui
-        ui/edit/dialog_edit_group.h
-        ui/edit/dialog_edit_group.cpp
-        ui/edit/dialog_edit_group.ui
+        include/ui/profile/dialog_edit_profile.h
+        src/ui/profile/dialog_edit_profile.cpp
+        include/ui/profile/dialog_edit_profile.ui
+        include/ui/group/dialog_edit_group.h
+        src/ui/group/dialog_edit_group.cpp
+        include/ui/group/dialog_edit_group.ui
 
-        ui/edit/edit_chain.h
-        ui/edit/edit_chain.cpp
-        ui/edit/edit_chain.ui
-        ui/edit/edit_socks_http.h
-        ui/edit/edit_socks_http.cpp
-        ui/edit/edit_socks_http.ui
-        ui/edit/edit_shadowsocks.h
-        ui/edit/edit_shadowsocks.cpp
-        ui/edit/edit_shadowsocks.ui
-        ui/edit/edit_vmess.h
-        ui/edit/edit_vmess.cpp
-        ui/edit/edit_vmess.ui
-        ui/edit/edit_trojan_vless.h
-        ui/edit/edit_trojan_vless.cpp
-        ui/edit/edit_trojan_vless.ui
+        include/ui/profile/edit_chain.h
+        src/ui/profile/edit_chain.cpp
+        include/ui/profile/edit_chain.ui
+        include/ui/profile/edit_socks_http.h
+        src/ui/profile/edit_socks_http.cpp
+        include/ui/profile/edit_socks_http.ui
+        include/ui/profile/edit_shadowsocks.h
+        src/ui/profile/edit_shadowsocks.cpp
+        include/ui/profile/edit_shadowsocks.ui
+        include/ui/profile/edit_vmess.h
+        src/ui/profile/edit_vmess.cpp
+        include/ui/profile/edit_vmess.ui
+        include/ui/profile/edit_trojan_vless.h
+        src/ui/profile/edit_trojan_vless.cpp
+        include/ui/profile/edit_trojan_vless.ui
 
-        ui/edit/edit_naive.h
-        ui/edit/edit_naive.cpp
-        ui/edit/edit_naive.ui
+        include/ui/profile/edit_quic.h
+        src/ui/profile/edit_quic.cpp
+        include/ui/profile/edit_quic.ui
 
-        ui/edit/edit_quic.h
-        ui/edit/edit_quic.cpp
-        ui/edit/edit_quic.ui
+        include/ui/profile/edit_custom.h
+        src/ui/profile/edit_custom.cpp
+        include/ui/profile/edit_custom.ui
 
-        ui/edit/edit_custom.h
-        ui/edit/edit_custom.cpp
-        ui/edit/edit_custom.ui
+        include/ui/profile/edit_wireguard.h
+        src/ui/profile/edit_wireguard.cpp
+        include/ui/profile/edit_wireguard.ui
 
-        ui/edit/edit_wireguard.h
-        ui/edit/edit_wireguard.cpp
-        ui/edit/edit_wireguard.ui
+        src/ui/setting/dialog_basic_settings.cpp
+        include/ui/setting/dialog_basic_settings.h
+        include/ui/setting/dialog_basic_settings.ui
 
-        ui/dialog_basic_settings.cpp
-        ui/dialog_basic_settings.h
-        ui/dialog_basic_settings.ui
+        src/ui/group/dialog_manage_groups.cpp
+        include/ui/group/dialog_manage_groups.h
+        include/ui/group/dialog_manage_groups.ui
 
-        ui/dialog_manage_groups.cpp
-        ui/dialog_manage_groups.h
-        ui/dialog_manage_groups.ui
+        src/ui/setting/dialog_manage_routes.cpp
+        include/ui/setting/dialog_manage_routes.h
+        include/ui/setting/dialog_manage_routes.ui
 
-        ui/dialog_manage_routes.cpp
-        ui/dialog_manage_routes.h
-        ui/dialog_manage_routes.ui
+        src/ui/setting/dialog_vpn_settings.cpp
+        include/ui/setting/dialog_vpn_settings.h
+        include/ui/setting/dialog_vpn_settings.ui
 
-        ui/dialog_vpn_settings.cpp
-        ui/dialog_vpn_settings.h
-        ui/dialog_vpn_settings.ui
+        src/ui/setting/dialog_hotkey.cpp
+        include/ui/setting/dialog_hotkey.h
+        include/ui/setting/dialog_hotkey.ui
 
-        ui/dialog_hotkey.cpp
-        ui/dialog_hotkey.h
-        ui/dialog_hotkey.ui
-
-        ui/widget/ProxyItem.cpp
-        ui/widget/ProxyItem.h
-        ui/widget/ProxyItem.ui
-        ui/widget/GroupItem.cpp
-        ui/widget/GroupItem.h
-        ui/widget/GroupItem.ui
-        ui/widget/RouteItem.cpp
-        ui/widget/RouteItem.h
-        ui/widget/RouteItem.ui
+        src/ui/profile/ProxyItem.cpp
+        include/ui/profile/ProxyItem.h
+        include/ui/profile/ProxyItem.ui
+        src/ui/group/GroupItem.cpp
+        include/ui/group/GroupItem.h
+        include/ui/group/GroupItem.ui
+        src/ui/setting/RouteItem.cpp
+        include/ui/setting/RouteItem.h
+        include/ui/setting/RouteItem.ui
 
         res/neko.qrc
         ${QV2RAY_RC}
-        db/RouteEntity.h
-        db/RouteEntity.cpp
+        include/dataStore/RouteEntity.h
+        src/dataStore/RouteEntity.cpp
         res/darkstyle.qrc
-        ui/edit/edit_ssh.cpp
-        ui/edit/edit_ssh.h
-        ui/edit/edit_ssh.ui
-        fmt/SSHBean.h
-        sys/macos/MacOS.cpp
-        sys/macos/MacOS.h
+        src/ui/profile/edit_ssh.cpp
+        include/ui/profile/edit_ssh.h
+        include/ui/profile/edit_ssh.ui
+        include/configs/proxy/SSHBean.h
+        src/sys/macos/MacOS.cpp
+        include/sys/macos/MacOS.h
+
+        src/sys/linux/LinuxCap.cpp
+
+        src/sys/macos/MacOS.cpp
+
+        src/sys/AutoRun.cpp
+        src/sys/Process.cpp
+        include/ui/mainwindow_interface.h
+        include/stats/connections/connectionLister.hpp
+        src/stats/connectionLister/connectionLister.cpp
 )
 
 # Qt exe
@@ -233,9 +243,9 @@ set_target_properties(nekoray PROPERTIES
 # Target Source Translations
 
 set(TS_FILES
-        translations/zh_CN.ts
-        translations/fa_IR.ts
-        translations/ru_RU.ts
+        res/translations/zh_CN.ts
+        res/translations/fa_IR.ts
+        res/translations/ru_RU.ts
 )
 set(LUPDATE_OPTIONS
         -locations none -no-obsolete
@@ -243,13 +253,13 @@ set(LUPDATE_OPTIONS
 qt_add_lupdate(nekoray TS_FILES ${TS_FILES} OPTIONS ${LUPDATE_OPTIONS})
 qt_add_lrelease(nekoray TS_FILES ${TS_FILES} QM_FILES_OUTPUT_VARIABLE QM_FILES)
 
-configure_file(translations/translations.qrc ${CMAKE_BINARY_DIR} COPYONLY)
+configure_file(res/translations/translations.qrc ${CMAKE_BINARY_DIR} COPYONLY)
 target_sources(nekoray PRIVATE ${CMAKE_BINARY_DIR}/translations.qrc)
 
 # Target Link
 
 target_link_libraries(nekoray PRIVATE
-        Qt6::Widgets Qt6::Network Qt6::Svg
+        Qt6::Widgets Qt6::Network
         Threads::Threads
         ${NKR_EXTERNAL_TARGETS}
         ${PLATFORM_LIBRARIES}

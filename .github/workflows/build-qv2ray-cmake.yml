@@ -21,8 +21,6 @@ jobs:
         include:
           - cross_os: public_res
             cross_arch: public_res
-          - cross_os: windows7
-            cross_arch: amd64
       fail-fast: false
     runs-on: ubuntu-latest
     steps:
@@ -35,24 +33,19 @@ jobs:
         uses: actions/cache@v4.0.2
         with:
           path: artifacts.tgz
-          key: CommonCache-${{ matrix.cross_os }}-${{ matrix.cross_arch }}-${{ hashFiles('libs/*.sh', 'go_status', '*.txt') }}
+          key: CommonCache-${{ matrix.cross_os }}-${{ matrix.cross_arch }}-${{ hashFiles('script/*.sh', 'go_status', '*.txt') }}
       - name: Install Golang
         if: steps.cache-common.outputs.cache-hit != 'true' && matrix.cross_os != 'windows7'
         uses: actions/setup-go@v5.0.2
         with:
           go-version: '1.23.3'
-      - name: Install Older Golang
-        if: steps.cache-common.outputs.cache-hit != 'true' && matrix.cross_os == 'windows7'
-        uses: actions/setup-go@v5.0.2
-        with:
-          go-version: '1.20'
       - name: Build golang parts
         if: steps.cache-common.outputs.cache-hit != 'true'
         shell: bash
         run: |
-          [ ${{ matrix.cross_os }} == public_res ] || GOOS=${{ matrix.cross_os }} GOARCH=${{ matrix.cross_arch }} ./libs/build_go.sh
+          [ ${{ matrix.cross_os }} == public_res ] || GOOS=${{ matrix.cross_os }} GOARCH=${{ matrix.cross_arch }} ./script/build_go.sh
           [ ${{ matrix.cross_os }} == public_res ] || exit 0
-          ./libs/build_public_res.sh
+          ./script/build_public_res.sh
       - name: Tar files
         if: steps.cache-common.outputs.cache-hit != 'true'
         run: tar czvf artifacts.tgz ./deployment
@@ -68,16 +61,16 @@ jobs:
       matrix:
         include:
           - platform: windows-latest
-            qt_version: "6.8.0"
+            qt_version: "6.8.1"
             target: amd64
           - platform: ubuntu-latest
-            qt_version: "6.8.0"
+            qt_version: "6.8.1"
             target: amd64
           - platform: macos-latest
-            qt_version: "6.8.0"
+            qt_version: "6.8.1"
             target: x86_64
           - platform: macos-latest
-            qt_version: "6.8.0"
+            qt_version: "6.8.1"
             target: arm64
       fail-fast: false
     runs-on: ${{ matrix.platform }}
@@ -112,11 +105,11 @@ jobs:
         uses: actions/cache@v4.0.2
         with:
           path: libs/deps
-          key: DepsCache-${{ matrix.platform }}-${{ matrix.target }}-${{ hashFiles('libs/build_deps_*.sh') }}-Qt${{ matrix.qt_version }}
+          key: DepsCache-${{ matrix.platform }}-${{ matrix.target }}-${{ hashFiles('script/build_deps_*.sh') }}-Qt${{ matrix.qt_version }}
       - name: Build Dependencies
         shell: bash
         if: steps.cache-deps.outputs.cache-hit != 'true'
-        run: ./libs/build_deps_all.sh ${{ matrix.target }}
+        run: ./script/build_deps_all.sh ${{ matrix.target }}
       # ========================================================================================================= Generate MakeFile and Build
       - name: Windows - Generate MakeFile and Build
         shell: bash
@@ -130,7 +123,7 @@ jobs:
           cmake -GNinja -DQT_VERSION_MAJOR=6 -DCMAKE_BUILD_TYPE=Release ..
           ninja -j2
           cd ..
-          ./libs/deploy_windows64.sh
+          ./script/deploy_windows64.sh
       - name: Linux - Generate MakeFile and Build
         shell: bash
         if: matrix.platform == 'ubuntu-latest'
@@ -141,7 +134,7 @@ jobs:
           cmake -GNinja -DQT_VERSION_MAJOR=6  -DCMAKE_BUILD_TYPE=Release .. 
           ninja 
           popd 
-          ./libs/deploy_linux64.sh
+          ./script/deploy_linux64.sh
       - name: macOS - Generate MakeFile and Build
         shell: bash
         if: matrix.platform == 'macos-latest'
@@ -151,7 +144,7 @@ jobs:
           cmake -GNinja -DQT_VERSION_MAJOR=6 -DCMAKE_BUILD_TYPE=Release -DNKR_PACKAGE_MACOS=1 -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 -DCMAKE_OSX_ARCHITECTURES=${{ matrix.target }} ..
           ninja
           cd ..
-          ./libs/deploy_macos.sh ${{ matrix.target }}
+          ./script/deploy_macos.sh ${{ matrix.target }}
       # ========================================================================================================= Deployments
       - name: Tar files
         shell: bash
@@ -178,21 +171,17 @@ jobs:
         run: |
           curl -Lo - https://github.com/tcnksm/ghr/releases/download/v0.16.2/ghr_v0.16.2_linux_amd64.tar.gz | tar xzv
           mv ghr*linux_amd64/ghr .
-          source libs/env_deploy.sh
+          source script/env_deploy.sh
           find . -name artifacts.tgz | xargs -n1 tar xvzf
           cd deployment
           rm -rf *.pdb
           ####
-          bash ../libs/pack_debian.sh ${{ github.event.inputs.tag }}
+          bash ../script/pack_debian.sh ${{ github.event.inputs.tag }}
           mv nekoray.deb $version_standalone-debian-x64.deb
           rm -rf nekoray
           ####
           mv linux64 nekoray
           zip -r $version_standalone-linux64.zip nekoray
-          rm -rf nekoray
-          ####
-          mv windows7 nekoray
-          zip -r $version_standalone-windows7.zip nekoray
           rm -rf nekoray
           ####
           mv windows64 nekoray
