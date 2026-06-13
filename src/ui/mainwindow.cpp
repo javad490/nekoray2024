@@ -963,7 +963,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
         if (ents.count() != 1) return;
         auto ent = Configs::dataManager->profilesRepo->GetProfile(ents.first());
 
-        auto result = Configs::BuildSingBoxConfig(ent);
+        auto result = Configs::BuildSingBoxConfig(ent, true);
         if (!result->error.isEmpty()) {
             MessageBoxWarning("Build config error", result->error);
             return;
@@ -1041,6 +1041,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     m_proxyListRefreshDebounce = new QTimer(this);
     m_proxyListRefreshDebounce->setSingleShot(true);
     connect(m_proxyListRefreshDebounce, &QTimer::timeout, this, [this] { refresh_proxy_list({}, false); });
+
+    // Polls the default route while an interface-bound xray egress is running
+    // (started/stopped from profile_start/profile_stop). 3s is cheap (a loopback
+    // RPC that just reads the monitor's cached value).
+    m_defaultInterfaceWatch = new QTimer(this);
+    m_defaultInterfaceWatch->setInterval(3000);
+    connect(m_defaultInterfaceWatch, &QTimer::timeout, this, [this] { checkDefaultInterfaceChange(); });
 
     // auto update timer
     TM_auto_update_subsctiption = new QTimer;
@@ -2279,7 +2286,7 @@ void MainWindow::on_menu_export_config_triggered() {
     if (ents.count() != 1) return;
     auto ent = Configs::dataManager->profilesRepo->GetProfile(ents.first());
 
-    auto result = Configs::BuildSingBoxConfig(ent);
+    auto result = Configs::BuildSingBoxConfig(ent, true);
     QString config_core = QJsonObject2QString(result->coreConfig, true);
     QApplication::clipboard()->setText(config_core);
 
@@ -2291,7 +2298,7 @@ void MainWindow::on_menu_export_config_triggered() {
     msg.setDefaultButton(QMessageBox::Ok);
     msg.exec();
     if (msg.clickedButton() == button_1) {
-        result = BuildSingBoxConfig(ent);
+        result = BuildSingBoxConfig(ent, true);
         if (!result->error.isEmpty()) {
             MessageBoxWarning("Build config error", result->error);
             return;

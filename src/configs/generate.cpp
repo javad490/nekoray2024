@@ -126,6 +126,19 @@ namespace Configs {
         {
             ctx->isResolvedUsed = isSystemdResolvedDefaultResolver();
         }
+        // Resolve the physical default-route interface once per real build. When
+        // Xray is the final egress under TUN we bind its egress socket directly
+        // to this interface (streamSettings.sockopt.interface) instead of
+        // detouring through a sing-box socks loopback bridge. Skipped for
+        // test/export builds (an export must stay machine-portable) and when TUN
+        // is off (no loop to prevent). On any RPC failure defaultInterface stays
+        // empty and the build falls back to the loopback bridge.
+        if (ctx->tunEnabled && !ctx->forTest && !ctx->forExport)
+        {
+            bool ifcOK = false;
+            auto ifc = API::defaultClient->GetDefaultInterface(&ifcOK);
+            if (ifcOK && !ifc.isEmpty()) ctx->defaultInterface = ifc;
+        }
         auto preReqs = ctx->buildPrerequisities;
         
         // Get route chain
@@ -927,6 +940,28 @@ namespace Configs {
                     }
                 }
             }
+            if (!bridgeConfig.bindInterface.isEmpty() && idx == ents.size() - 1) {
+                // Final egress hop under TUN: bind its physical socket to the
+                // default interface so it doesn't re-enter TUN. Inner hops dial
+                // through this one via proxySettings and open no socket of their
+                // own, so only the last hop needs the sockopt.
+                auto streamSettings = object["streamSettings"].toObject();
+                auto sockopt = streamSettings["sockopt"].toObject();
+                sockopt["interface"] = bridgeConfig.bindInterface;
+                const auto network = streamSettings["network"].toString();
+                if (network == "xhttp" || network == "splithttp") {
+                    auto xhttpSettings = streamSettings["xhttpSettings"].toObject();
+                    if (xhttpSettings.isEmpty()) xhttpSettings = streamSettings["splithttpSettings"].toObject();
+                    if (xhttpSettings["extra"].toObject().contains("downloadSettings")) {
+                        // XHTTP's download leg gets its own stream config;
+                        // penetrate makes Xray copy this sockopt (including the
+                        // interface bind) onto it too.
+                        sockopt["penetrate"] = true;
+                    }
+                }
+                streamSettings["sockopt"] = sockopt;
+                object["streamSettings"] = streamSettings;
+            }
             // A bridge always requires chaining the preceding hop into it,
             // even when `link` is false (single-hop route groups). nextTag
             // already encodes whether anything follows, so honoring it
@@ -1040,12 +1075,33 @@ namespace Configs {
         // honors auto_detect_interface, so handing xray's egress to it bypasses
         // TUN cleanly. Mutually exclusive with xrayToSingTransitioned (which
         // implies a tailing sing-box hop already exists).
-        bool xrayFinalEgressLoopback = !xrayEnts.isEmpty() && tailingSingEnts.isEmpty() && ctx->tunEnabled && !ctx->xrayToSingTransitioned;
+        // Chain ends in xray with no following sing-box hop. Its egress socket
+        // would otherwise follow the OS default route — which is a TUN whenever
+        // one is up: this profile's own TUN, or another profile already running
+        // while we build a test config. Either way we want it on the physical NIC.
+        bool xrayFinalEgress = !xrayEnts.isEmpty() && tailingSingEnts.isEmpty() && !ctx->xrayToSingTransitioned;
         coreBridgeConfig xrayToSingBridgeConf;
         if (ctx->xrayToSingTransitioned) {
             xrayToSingBridgeConf = {true, xrayToSingPort == -1 ? ports[1] : xrayToSingPort, GetRandomString(32), false, GenRandomLoopback()};
             ctx->xrayToSingBridges << xrayToSingBridgeConf;
-        } else if (xrayFinalEgressLoopback) {
+        } else if (xrayFinalEgress && !ctx->defaultInterface.isEmpty()) {
+            // Preferred: bind the egress straight to the physical default
+            // interface (streamSettings.sockopt.interface) — no socks loopback
+            // hop. Covers the main config ending in xray under our own TUN, and a
+            // test build while a TUN profile is running (so the test isn't
+            // captured by the live profile, mirroring auto_detect_interface on
+            // the sing-box side). No bridge inbound / route rule / xray-direct
+            // outbound is emitted for this chain.
+            xrayToSingBridgeConf = {};
+            xrayToSingBridgeConf.bindInterface = ctx->defaultInterface;
+            MW_show_log("[interface-bind] " + prefix + " xray egress bound to default interface " + ctx->defaultInterface);
+            // Only a real running profile is watched for interface changes; tests
+            // are short-lived and use a separate result object.
+            if (!ctx->forTest) ctx->buildConfigResult->boundInterface = ctx->defaultInterface;
+        } else if (xrayFinalEgress && ctx->tunEnabled) {
+            // Fallback for the main config under our own TUN when no interface
+            // was resolved: detour xray's egress through a sing-box socks inbound
+            // that routes to `direct` (auto_detect_interface bypasses TUN).
             xrayToSingBridgeConf = {true, xrayToSingPort == -1 ? ports[1] : xrayToSingPort, GetRandomString(32), true, GenRandomLoopback()};
             ctx->xrayToSingBridges << xrayToSingBridgeConf;
         }
@@ -1506,7 +1562,7 @@ namespace Configs {
         };
     }
 
-    std::shared_ptr<BuildConfigResult> BuildSingBoxConfig(const std::shared_ptr<Profile>& ent) {
+    std::shared_ptr<BuildConfigResult> BuildSingBoxConfig(const std::shared_ptr<Profile>& ent, bool forExport) {
         if (ent->type == "custom")
         {
             auto res = std::make_shared<BuildConfigResult>();
@@ -1525,6 +1581,7 @@ namespace Configs {
 
         auto ctx = std::make_shared<BuildSingBoxConfigContext>();
         ctx->ent = ent;
+        ctx->forExport = forExport;
 
         CalculatePrerequisities(ctx);
 
@@ -1664,6 +1721,18 @@ namespace Configs {
         auto res = std::make_shared<BuildTestConfigResult>();
         auto ctx = std::make_shared<BuildSingBoxConfigContext>();
         ctx->forTest = true;
+        // Always bind a test's xray egress to the physical default interface so a
+        // result never depends on the live TUN state: if a profile is running with
+        // TUN, its TUN owns the default route and would otherwise capture and
+        // re-proxy the test; with no TUN up this is a harmless no-op (the physical
+        // NIC is already the default route). The sing-box side gets the same
+        // bypass via the test route's auto_detect_interface. On RPC failure we
+        // simply don't bind.
+        {
+            bool ifcOK = false;
+            auto ifc = API::defaultClient->GetDefaultInterface(&ifcOK);
+            if (ifcOK && !ifc.isEmpty()) ctx->defaultInterface = ifc;
+        }
         QList<int> entIDs;
         for (const auto& proxy : profiles) entIDs << proxy->id;
         ctx->buildPrerequisities->dnsDeps->directDomains = QListStr2QJsonArray(getEntDomains(entIDs, ctx->error));

@@ -44,6 +44,9 @@ namespace API {
 
         bool IsPrivileged(bool *rpcOK) const;
 
+        // Physical default-route interface name (empty on failure / no route).
+        QString GetDefaultInterface(bool *rpcOK) const;
+
         libcore::SpeedTestResponse SpeedTest(bool *rpcOK, const libcore::SpeedTestRequest &request);
 
         libcore::QuerySpeedTestResponse QueryCurrentSpeedTests(bool *rpcOK);

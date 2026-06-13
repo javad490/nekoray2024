@@ -294,6 +294,16 @@ private:
     QTimer *m_proxyListRefreshDebounce = nullptr;
     void scheduleProxyListRefresh();
 
+    // Watches the physical default-route interface while a profile whose Xray
+    // egress is interface-bound (sockopt.interface) is running. A static bind is
+    // baked at build time, so when the default route flips (Wi-Fi<->Ethernet,
+    // VPN up/down) the name is stale and we rebuild+restart the profile. Inactive
+    // while m_boundEgressInterface is empty (no interface-bound egress).
+    QTimer *m_defaultInterfaceWatch = nullptr;
+    QString m_boundEgressInterface;
+    int m_ifcChangeStreak = 0;
+    void checkDefaultInterfaceChange();
+
     //
 
     void HotkeyEvent(const QString &key);

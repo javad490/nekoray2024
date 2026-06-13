@@ -465,6 +465,26 @@ namespace API {
         }
     }
 
+    QString Client::GetDefaultInterface(bool* rpcOK) const
+    {
+        libcore::EmptyReq request;
+        libcore::GetDefaultInterfaceResponse reply;
+        std::vector<uint8_t> resp;
+        // Short timeout: this feeds a synchronous config build, so a hung core
+        // must not freeze it. On any failure the caller keeps the loopback bridge.
+        auto status = channel->Call("GetDefaultInterface", spb::pb::serialize<std::string>(request), resp, 3000);
+
+        if (status == CALL_OK && tryDeserialize(resp, reply))
+        {
+            *rpcOK = true;
+            return QString::fromStdString(reply.name.value());
+        } else
+        {
+            NOT_OK
+            return "";
+        }
+    }
+
     libcore::SpeedTestResponse Client::SpeedTest(bool *rpcOK, const libcore::SpeedTestRequest &request)
     {
         libcore::SpeedTestResponse reply;

@@ -678,6 +678,36 @@ bool MainWindow::set_system_dns(bool set, bool save_set) {
     return true;
 }
 
+// Fired by m_defaultInterfaceWatch while a profile with an interface-bound xray
+// egress is running. The bind name (sockopt.interface) is baked at build time,
+// so if the OS default route moves to a different NIC we must rebuild+restart to
+// re-bake it. profile_start re-resolves the interface and re-arms this watch.
+void MainWindow::checkDefaultInterfaceChange() {
+    if (running == nullptr || m_boundEgressInterface.isEmpty()) {
+        if (m_defaultInterfaceWatch) m_defaultInterfaceWatch->stop();
+        m_ifcChangeStreak = 0;
+        return;
+    }
+    bool ok = false;
+    QString cur = defaultClient->GetDefaultInterface(&ok);
+    // Unchanged, or a transient failure / no-route: keep the current binding.
+    if (!ok || cur.isEmpty() || cur == m_boundEgressInterface) {
+        m_ifcChangeStreak = 0;
+        return;
+    }
+    // Require two consecutive differing reads before acting, so a brief handoff
+    // (old NIC down before the new one becomes the default route) doesn't thrash
+    // profile_start.
+    if (++m_ifcChangeStreak < 2) return;
+
+    m_ifcChangeStreak = 0;
+    if (m_defaultInterfaceWatch) m_defaultInterfaceWatch->stop(); // re-armed on successful restart
+    const int startedId = running->id;
+    MW_show_log(tr("[interface-bind] default route changed (%1 -> %2), restarting profile")
+                    .arg(m_boundEgressInterface, cur));
+    profile_start(startedId);
+}
+
 void MainWindow::profile_start(int _id) {
     if (Configs::dataManager->settingsRepo->prepare_exit) return;
 #ifdef Q_OS_LINUX
@@ -769,6 +799,13 @@ void MainWindow::profile_start(int _id) {
         runOnUiThread([=, this] {
             refresh_status();
             refresh_proxy_list({ent->id});
+
+            // Arm the default-interface watch when this profile baked a static
+            // egress interface bind; otherwise make sure it's stopped.
+            m_boundEgressInterface = result->boundInterface;
+            m_ifcChangeStreak = 0;
+            if (m_boundEgressInterface.isEmpty()) m_defaultInterfaceWatch->stop();
+            else m_defaultInterfaceWatch->start();
 
             auto resp = NetworkRequestHelper::HttpGet("http://ip-api.com/json/", false, true);
             if (resp.error.isEmpty()) {
@@ -900,6 +937,11 @@ void MainWindow::profile_stop(bool crash, bool block, bool manual) {
             restartMsgboxTimer->cancel();
             restartMsgboxTimer->deleteLater();
             restartMsgbox->deleteLater();
+
+            // Interface-bound egress (if any) is gone; stop watching the route.
+            if (m_defaultInterfaceWatch) m_defaultInterfaceWatch->stop();
+            m_boundEgressInterface.clear();
+            m_ifcChangeStreak = 0;
 
             refresh_status();
             refresh_proxy_list({id});
