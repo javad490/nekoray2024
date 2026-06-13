@@ -57,6 +57,23 @@ namespace Configs {
         if (!server.isEmpty()) object["server"] = server;
         if (server_port > 0) object["server_port"] = server_port;
         mergeJsonObjects(object, dialFields->Build().object);
+        // hiddify: the custom TLS-fragment implementation lives at the dialer level
+        // (a sibling of "tls", not inside it), so emit it here when it is selected,
+        // TLS is enabled, and fragment is effectively on. The built-in implementation
+        // is emitted inside TLS::Build() as tls.fragment instead.
+        if (HasTLS()) {
+            auto t = GetTLS();
+            if (t->enabled && t->FragmentEffectivelyOn() &&
+                Configs::dataManager->settingsRepo->fragment_implementation == "custom") {
+                // the core rejects tls_fragment combined with tcp_fast_open
+                object.remove("tcp_fast_open");
+                object["tls_fragment"] = QJsonObject{
+                    {"enabled", true},
+                    {"size", "10-100"},
+                    {"sleep", "2-5"},
+                };
+            }
+        }
         return {object, ""};
     }
 }

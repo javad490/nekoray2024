@@ -24,7 +24,7 @@ namespace Configs
     {
         public:
         bool enabled = false;
-        bool unspecified = false;
+        bool unspecified = true; // tri-state defaults to "Keep Default"
         QString protocol;
         int max_connections = 0;
         int min_streams = 0;
@@ -39,6 +39,7 @@ namespace Configs
         }
 
         void saveMuxState(int state) {
+            unspecified = false;
             if (state == 1) {
                 enabled = true;
                 return;

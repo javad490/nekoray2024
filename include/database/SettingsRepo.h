@@ -75,6 +75,13 @@ namespace Configs {
         bool mux_padding = false;
         int mux_concurrency = 8;
         bool mux_default_on = false;
+        // TLS fragment: which implementation profiles use ("built-in" = sing-box
+        // tls.fragment, "custom" = hiddify dialer-level tls_fragment), and whether
+        // profiles left on "Keep Default" should be fragmented.
+        QString fragment_implementation = "built-in";
+        bool fragment_default_on = false;
+        // TLS tricks (mixed-case SNI): default for profiles left on "Keep Default".
+        bool tls_tricks_default_on = false;
         QString theme = "0";
         int language = 0;
         QString font = "";

@@ -169,10 +169,11 @@ DialogEditProfile::DialogEditProfile(const QString &_type, int profileOrGroupId,
     });
     emit ui->security->currentTextChanged(ui->security->currentText());
 
-    // for fragment
-    connect(ui->tls_frag, &QCheckBox::stateChanged, this, [=,this](bool state)
+    // for fragment: fallback delay only applies to the built-in implementation,
+    // so disable it when the tri-state is Off (index 2).
+    connect(ui->fragment, &QComboBox::currentIndexChanged, this, [=,this](int index)
     {
-        ui->tls_frag_fall_delay->setEnabled(state);
+        ui->tls_frag_fall_delay->setEnabled(index != 2);
     });
 
     // mux setting changed
@@ -475,10 +476,11 @@ void DialogEditProfile::typeSelected(const QString &newType) {
         } else {
             ui->utlsFingerprint->setCurrentText(tls->utls->fingerPrint);
         }
-        ui->tls_frag->setChecked(tls->fragment);
-        ui->tls_frag_fall_delay->setEnabled(tls->fragment);
+        ui->fragment->setCurrentIndex(tls->getFragmentState());
+        ui->tls_frag_fall_delay->setEnabled(tls->getFragmentState() != 2);
         ui->tls_frag_fall_delay->setText(tls->fragment_fallback_delay);
         ui->tls_rec_frag->setChecked(tls->record_fragment);
+        ui->tls_tricks->setCurrentIndex(tls->getTlsTricksState());
         ui->insecure->setChecked(tls->insecure);
         ui->headers->setText(Configs::getHeadersString(transport->headers));
         ui->service_name->setText(transport->service_name);
@@ -686,9 +688,10 @@ bool DialogEditProfile::onEnd() {
         tls->alpn = SplitAndTrim(ui->alpn->text(), ",", false);
         tls->utls->fingerPrint = ui->utlsFingerprint->currentText();
         tls->utls->enabled = !tls->utls->fingerPrint.isEmpty();
-        tls->fragment = ui->tls_frag->isChecked();
+        tls->saveFragmentState(ui->fragment->currentIndex());
         tls->fragment_fallback_delay = ui->tls_frag_fall_delay->text();
         tls->record_fragment = ui->tls_rec_frag->isChecked();
+        tls->saveTlsTricksState(ui->tls_tricks->currentIndex());
         tls->insecure = ui->insecure->isChecked();
         transport->headers = Configs::parseHeaderPairs(ui->headers->text());
         transport->method = ui->method->text();

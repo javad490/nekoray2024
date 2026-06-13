@@ -45,6 +45,7 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
     ui->log_level->addItems(QString("trace debug info warn error fatal panic").split(" "));
     ui->xray_loglevel->addItems(Configs::Xray::XrayLogLevels);
     ui->mux_protocol->addItems({"h2mux", "smux", "yamux"});
+    ui->fragment_implementation->addItems({"built-in", "custom"});
     ui->disable_stats->setChecked(Configs::dataManager->settingsRepo->disable_traffic_stats);
     ui->proxy_scheme->setCurrentText(Configs::dataManager->settingsRepo->proxy_scheme);
 
@@ -210,6 +211,9 @@ DialogBasicSettings::DialogBasicSettings(QWidget *parent)
     D_LOAD_COMBO_STRING(mux_protocol)
     D_LOAD_BOOL(mux_padding)
     D_LOAD_BOOL(mux_default_on)
+    D_LOAD_COMBO_STRING(fragment_implementation)
+    D_LOAD_BOOL(fragment_default_on)
+    D_LOAD_BOOL(tls_tricks_default_on)
     ui->dns_in_port->setValidator(new QIntValidator(1, 65535, ui->dns_in_port));
     ui->dns_in_port->setText(Int2String(Configs::dataManager->settingsRepo->core_dns_in_port));
 
@@ -370,6 +374,9 @@ void DialogBasicSettings::accept() {
     D_SAVE_COMBO_STRING(mux_protocol)
     D_SAVE_BOOL(mux_padding)
     D_SAVE_BOOL(mux_default_on)
+    D_SAVE_COMBO_STRING(fragment_implementation)
+    D_SAVE_BOOL(fragment_default_on)
+    D_SAVE_BOOL(tls_tricks_default_on)
 
     // NTP
     Configs::dataManager->settingsRepo->enable_ntp = ui->ntp_enable->isChecked();

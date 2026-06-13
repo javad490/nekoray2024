@@ -33,17 +33,22 @@ namespace Configs {
 
     QString xrayMultiplex::ExportToLink() {
         QUrlQuery query;
-        if (!enabled) return "";
-        query.addQueryItem("mux", "true");
-        if (concurrency > 0) query.addQueryItem("mux_concurrency", QString::number(concurrency));
-        if (xudpConcurrency > 0) query.addQueryItem("mux_xudp_concurrency", QString::number(xudpConcurrency));
+        if (useDefault) return "";
+        query.addQueryItem("mux", enabled ? "true" : "false");
+        if (enabled) {
+            if (concurrency > 0) query.addQueryItem("mux_concurrency", QString::number(concurrency));
+            if (xudpConcurrency > 0) query.addQueryItem("mux_xudp_concurrency", QString::number(xudpConcurrency));
+        }
         return query.toString(QUrl::FullyEncoded);
     }
 
     QJsonObject xrayMultiplex::ExportToJson() {
         QJsonObject object;
-        if (!enabled) return object;
+        // tri-state: omit only for "Keep Default" (useDefault); persist On (true) /
+        // Off (false) explicitly so an Off choice survives a round-trip.
+        if (useDefault) return object;
         object["enabled"] = enabled;
+        if (!enabled) return object;
         if (concurrency > 0) object["concurrency"] = concurrency;
         if (xudpConcurrency > 0) object["xudpConcurrency"] = xudpConcurrency;
         return object;

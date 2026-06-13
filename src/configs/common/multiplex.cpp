@@ -53,7 +53,7 @@ namespace Configs {
         if (!url.isValid()) return false;
         auto query = QUrlQuery(url.query());
 
-        if (query.hasQueryItem("mux")) enabled = query.queryItemValue("mux") == "true";
+        if (query.hasQueryItem("mux")) { enabled = query.queryItemValue("mux") == "true"; unspecified = false; }
         else unspecified = true;
         if (query.hasQueryItem("mux_protocol")) protocol = query.queryItemValue("mux_protocol");
         if (query.hasQueryItem("mux_max_connections")) max_connections = query.queryItemValue("mux_max_connections").toInt();
@@ -70,7 +70,7 @@ namespace Configs {
             unspecified = true;
             return false;
         }
-        if (object.contains("enabled")) enabled = object["enabled"].toBool();
+        if (object.contains("enabled")) { enabled = object["enabled"].toBool(); unspecified = false; }
         else unspecified = true;
         if (object.contains("protocol")) protocol = object["protocol"].toString();
         if (object.contains("max_connections")) max_connections = object["max_connections"].toInt();
@@ -83,6 +83,7 @@ namespace Configs {
     bool Multiplex::ParseFromClash(const clash::Proxies& object)
     {
         enabled = object.smux.enabled;
+        unspecified = false;
         if (!object.smux.protocol.empty()) protocol = QString::fromStdString(object.smux.protocol);
         if (object.smux.max_streams > 0) {
             max_streams = object.smux.max_streams;
@@ -96,21 +97,27 @@ namespace Configs {
     QString Multiplex::ExportToLink()
     {
         QUrlQuery query;
-        if (!enabled) return "";
-        query.addQueryItem("mux", "true");
-        if (!protocol.isEmpty()) query.addQueryItem("mux_protocol", protocol);
-        if (max_connections > 0) query.addQueryItem("mux_max_connections", QString::number(max_connections));
-        if (min_streams > 0) query.addQueryItem("mux_min_streams", QString::number(min_streams));
-        if (max_streams > 0) query.addQueryItem("mux_max_streams", QString::number(max_streams));
-        if (padding) query.addQueryItem("mux_padding", "true");
-        mergeUrlQuery(query, brutal->ExportToLink());
+        if (unspecified) return "";
+        query.addQueryItem("mux", enabled ? "true" : "false");
+        if (enabled)
+        {
+            if (!protocol.isEmpty()) query.addQueryItem("mux_protocol", protocol);
+            if (max_connections > 0) query.addQueryItem("mux_max_connections", QString::number(max_connections));
+            if (min_streams > 0) query.addQueryItem("mux_min_streams", QString::number(min_streams));
+            if (max_streams > 0) query.addQueryItem("mux_max_streams", QString::number(max_streams));
+            if (padding) query.addQueryItem("mux_padding", "true");
+            mergeUrlQuery(query, brutal->ExportToLink());
+        }
         return query.toString();
     }
     QJsonObject Multiplex::ExportToJson()
     {
         QJsonObject object;
-        if (!enabled) return object;
+        // tri-state: omit only for "Keep Default"; persist On (true) / Off (false)
+        // explicitly so an Off choice survives a round-trip.
+        if (unspecified) return object;
         object["enabled"] = enabled;
+        if (!enabled) return object;
         if (!protocol.isEmpty()) object["protocol"] = protocol;
         if (max_connections > 0) object["max_connections"] = max_connections;
         if (min_streams > 0) object["min_streams"] = min_streams;

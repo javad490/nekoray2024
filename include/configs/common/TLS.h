@@ -73,12 +73,40 @@ namespace Configs
         QString client_certificate_path;
         QStringList client_key;
         QString client_key_path;
+        // fragment / tls_tricks are tri-states (default/on/off), like Multiplex.
+        // unspecified == "Keep Default" (resolved against the global setting at Build).
         bool fragment = false;
+        bool fragment_unspecified = true;
         QString fragment_fallback_delay;
         bool record_fragment = false;
+        bool tls_tricks = false;
+        bool tls_tricks_unspecified = true;
         std::shared_ptr<ECH> ech = std::make_shared<ECH>();
         std::shared_ptr<uTLS> utls = std::make_shared<uTLS>();
         std::shared_ptr<Reality> reality = std::make_shared<Reality>();
+
+        // Tri-state combo helpers (index: 0 = Keep Default, 1 = On, 2 = Off).
+        int getFragmentState() {
+            if (fragment) return 1;
+            if (fragment_unspecified) return 0;
+            return 2;
+        }
+        void saveFragmentState(int state) {
+            fragment = state == 1;
+            fragment_unspecified = state == 0;
+        }
+        int getTlsTricksState() {
+            if (tls_tricks) return 1;
+            if (tls_tricks_unspecified) return 0;
+            return 2;
+        }
+        void saveTlsTricksState(int state) {
+            tls_tricks = state == 1;
+            tls_tricks_unspecified = state == 0;
+        }
+        // Resolve the tri-states against the global defaults (see SettingsRepo).
+        bool FragmentEffectivelyOn();
+        bool TlsTricksEffectivelyOn();
 
         // baseConfig overrides
         bool ParseFromLink(const QString& link) override;
