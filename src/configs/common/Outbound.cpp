@@ -69,8 +69,8 @@ namespace Configs {
                 object.remove("tcp_fast_open");
                 object["tls_fragment"] = QJsonObject{
                     {"enabled", true},
-                    {"size", "10-100"},
-                    {"sleep", "2-5"},
+                    {"size", Configs::dataManager->settingsRepo->fragment_size.isEmpty() ? QString("10-100") : Configs::dataManager->settingsRepo->fragment_size},
+                    {"sleep", Configs::dataManager->settingsRepo->fragment_sleep.isEmpty() ? QString("2-5") : Configs::dataManager->settingsRepo->fragment_sleep},
                 };
             }
         }

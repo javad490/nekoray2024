@@ -100,6 +100,8 @@ namespace Configs {
             {"log_level",                  &log_level},
             {"mux_protocol",               &mux_protocol},
             {"fragment_implementation",    &fragment_implementation},
+            {"fragment_size",              &fragment_size},
+            {"fragment_sleep",             &fragment_sleep},
             {"theme",                      &theme},
             {"custom_inbound",             &custom_inbound},
             {"custom_route",               &custom_route_global},

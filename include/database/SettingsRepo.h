@@ -80,6 +80,11 @@ namespace Configs {
         // profiles left on "Keep Default" should be fragmented.
         QString fragment_implementation = "built-in";
         bool fragment_default_on = false;
+        // Custom (hiddify) fragment parameters, each a "min-max" range: bytes per
+        // ClientHello fragment, and milliseconds to sleep between bursts. Only the
+        // custom implementation uses these.
+        QString fragment_size = "10-100";
+        QString fragment_sleep = "2-5";
         // TLS tricks (mixed-case SNI): default for profiles left on "Keep Default".
         bool tls_tricks_default_on = false;
         QString theme = "0";
