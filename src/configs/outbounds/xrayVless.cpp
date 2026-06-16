@@ -77,7 +77,7 @@ namespace Configs {
         settings["port"] = server_port;
         settings["id"] = uuid;
         settings["encryption"] = encryption;
-        settings["flow"] = flow;
+        if (!flow.isEmpty() && flow != "none") settings["flow"] = flow;
         object["settings"] = settings;
         if (auto streamObj = streamSetting->ExportToJson(); !streamObj.isEmpty()) object["streamSettings"] = streamObj;
         if (auto muxObj = multiplex->ExportToJson(); !muxObj.isEmpty()) object["mux"] = muxObj;
@@ -99,7 +99,7 @@ namespace Configs {
         settings["port"] = server_port;
         settings["id"] = uuid;
         settings["encryption"] = encryption;
-        settings["flow"] = flow;
+        if (!flow.isEmpty() && flow != "none") settings["flow"] = flow;
         object["settings"] = settings;
         if (auto streamObj = streamSetting->Build().object; !streamObj.isEmpty()) object["streamSettings"] = streamObj;
         if (auto muxObj = multiplex->Build().object; !muxObj.isEmpty()) object["mux"] = muxObj;

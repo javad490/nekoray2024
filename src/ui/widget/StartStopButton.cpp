@@ -121,10 +121,10 @@ void StartStopButton::setLoopRunning(QPropertyAnimation *anim, bool running) {
 
 QColor StartStopButton::modeColor(Mode m) const {
     switch (m) {
-        case Mode::Core: return {0x3D, 0xD5, 0x6C};          // green
+        case Mode::Core: return {0x2E, 0xA0, 0x51};          // green
         case Mode::SystemProxy: return {0x37, 0x9B, 0xFF};   // blue
-        case Mode::Tun: return {0xB4, 0x68, 0xFF};           // purple
-        case Mode::Dns: return {0x2B, 0xD4, 0xD4};           // cyan
+        case Mode::Tun: return {0x9C, 0x1A, 0x1A};           // crimson red
+        case Mode::Dns: return {0xC8, 0x96, 0x00};           // dark gold
         case Mode::SystemProxyDns: return {0x7A, 0x82, 0xFF}; // indigo
         case Mode::Off:
         default: return idleRingColor();
@@ -188,7 +188,7 @@ void StartStopButton::paintEvent(QPaintEvent *) {
     p.scale(scale, scale);
     p.translate(-c);
 
-    const qreal penW = qMax(1.8, D * 0.070);
+    const qreal penW = qMax(1.6, D * 0.063);
     const qreal R = D * 0.34;
     const QRectF rr(c.x() - R, c.y() - R, 2 * R, 2 * R);
 
@@ -221,7 +221,7 @@ void StartStopButton::paintEvent(QPaintEvent *) {
         const qreal glowR = R + penW * 2.4;
         const qreal ringStop = R / glowR;
         QColor gPeak = m_ringColor;
-        gPeak.setAlphaF(0.09 + 0.22 * pulse);
+        gPeak.setAlphaF(0.20 + 0.40 * pulse);
         QColor gEdge = m_ringColor;
         gEdge.setAlphaF(0.0);
         // Outward only: the interior stays clear (the inner stops are transparent,
@@ -239,7 +239,7 @@ void StartStopButton::paintEvent(QPaintEvent *) {
         // Crisp core ring on top, barely brightening at the peak.
         p.setBrush(Qt::NoBrush);
         QColor base = m_ringColor.lighter(static_cast<int>(101 + 9 * pulse));
-        base.setAlphaF(0.75); // a touch dimmer than the full mode colour
+        base.setAlphaF(0.95); // a touch dimmer than the full mode colour
         QConicalGradient cg(c, 90.0);
         cg.setColorAt(0.0, base.lighter(116));
         cg.setColorAt(0.5, base);

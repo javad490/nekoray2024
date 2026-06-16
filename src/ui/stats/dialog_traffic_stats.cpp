@@ -87,8 +87,9 @@ DialogTrafficStats::DialogTrafficStats(QWidget* parent) : QDialog(parent) {
     // --- breakdown tables -------------------------------------------------
     tabs_ = new QTabWidget(this);
     tabs_->setStyleSheet(R"(
-        QTabWidget::tab-bar {
-            left: 2px;
+        QTabWidget::pane {
+            margin-top: 1px;
+            border-radius: 4px;
         }
 
         QTabBar {
@@ -99,6 +100,7 @@ DialogTrafficStats::DialogTrafficStats(QWidget* parent) : QDialog(parent) {
         QTabBar::tab {
             border: 1px solid #777777;
             border-radius: 4px;
+
             padding: 2px 4px;
             margin-right: 1px;
         }
