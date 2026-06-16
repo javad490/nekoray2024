@@ -148,6 +148,19 @@ namespace Configs {
             return;
         }
 
+        // Warp is enabled but its config was never generated: getWarpProfile()
+        // would build a wireguard outbound from empty keys/endpoint/addresses,
+        // which fails silently downstream. Break the flow early and tell the
+        // user to generate the warp config first.
+        if (dataManager->settingsRepo->enable_warp &&
+            (dataManager->settingsRepo->warp_private_key.isEmpty() ||
+             dataManager->settingsRepo->warp_public_key.isEmpty() ||
+             dataManager->settingsRepo->warp_ep.isEmpty() ||
+             dataManager->settingsRepo->warp_ifc_addrs.isEmpty())) {
+            ctx->error = "Warp is enabled but its config has not been generated. Please generate the Warp config first in Routing Settings.";
+            return;
+        }
+
         // Routing dependencies
         auto neededOutbounds = routeChain->get_used_outbounds();
         auto neededRuleSets = routeChain->get_used_rule_sets();
