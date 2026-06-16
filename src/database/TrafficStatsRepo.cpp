@@ -6,6 +6,14 @@ namespace Configs {
         createTables();
     }
 
+    std::string TrafficStatsRepo::bucketExpr(long long bucketSecs, long long utcOffsetSecs) {
+        const std::string b = std::to_string(bucketSecs);
+        const std::string off = std::to_string(utcOffsetSecs);
+        // floor((bucket_start + off) / b) * b - off. Wrapping off in parens keeps a
+        // negative (west-of-UTC) offset valid: "+ (-28800)" / "- (-28800)".
+        return "((bucket_start + (" + off + ")) / " + b + ") * " + b + " - (" + off + ")";
+    }
+
     void TrafficStatsRepo::createTables() const {
         db.exec(R"(
             CREATE TABLE IF NOT EXISTS config_traffic_minute (
@@ -218,15 +226,18 @@ namespace Configs {
         return out;
     }
 
-    QList<TrafficSeriesPoint> TrafficStatsRepo::QueryConfigSeries(long long fromSecs, long long toSecs, long long bucketSecs) {
+    QList<TrafficSeriesPoint> TrafficStatsRepo::QueryConfigSeries(long long fromSecs, long long toSecs, long long bucketSecs, long long utcOffsetSecs) {
         std::lock_guard<std::mutex> lk(mu);
         QList<TrafficSeriesPoint> out;
         if (bucketSecs <= 0) return out;
-        // bucketSecs is an internal constant (hourly/daily), so embedding it as a
-        // literal is safe and keeps the alignment arithmetic in one place.
-        const std::string b = std::to_string(bucketSecs);
+        // bucketSecs/utcOffsetSecs are internal numbers (hourly/daily size; the
+        // viewer's UTC offset), so embedding them as literals is safe and keeps the
+        // alignment arithmetic in one place. Shifting by the offset before the
+        // floor-divide snaps each bucket to the local calendar boundary; subtracting
+        // it back makes the returned bkt the epoch of that local boundary.
+        const std::string bkt = bucketExpr(bucketSecs, utcOffsetSecs);
         auto q = db.query(
-            "SELECT (bucket_start / " + b + ") * " + b + " AS bkt, SUM(u), SUM(d) FROM ("
+            "SELECT " + bkt + " AS bkt, SUM(u), SUM(d) FROM ("
             "  SELECT bucket_start, up AS u, down AS d FROM config_traffic_minute "
             "    WHERE bucket_start >= ? AND bucket_start < ? "
             "  UNION ALL "
@@ -245,13 +256,13 @@ namespace Configs {
         return out;
     }
 
-    QList<TrafficSeriesPoint> TrafficStatsRepo::QueryAppSeries(long long fromSecs, long long toSecs, long long bucketSecs) {
+    QList<TrafficSeriesPoint> TrafficStatsRepo::QueryAppSeries(long long fromSecs, long long toSecs, long long bucketSecs, long long utcOffsetSecs) {
         std::lock_guard<std::mutex> lk(mu);
         QList<TrafficSeriesPoint> out;
         if (bucketSecs <= 0) return out;
-        const std::string b = std::to_string(bucketSecs);
+        const std::string bkt = bucketExpr(bucketSecs, utcOffsetSecs);
         auto q = db.query(
-            "SELECT (bucket_start / " + b + ") * " + b + " AS bkt, SUM(u), SUM(d) FROM ("
+            "SELECT " + bkt + " AS bkt, SUM(u), SUM(d) FROM ("
             "  SELECT bucket_start, up AS u, down AS d FROM app_traffic_minute "
             "    WHERE bucket_start >= ? AND bucket_start < ? "
             "  UNION ALL "

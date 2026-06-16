@@ -15,7 +15,7 @@ class TrafficChartWidget : public QWidget {
 
 public:
     struct Bar {
-        long long bucketStart = 0; // epoch secs, for the hover tooltip's timestamp
+        long long bucketStart = 0; // epoch secs; bucket spans [bucketStart, +bucketSecs)
         long long down = 0;
         long long up = 0;
         QString label; // x-axis label (already formatted for the bucket size)
@@ -24,8 +24,9 @@ public:
     explicit TrafficChartWidget(QWidget* parent = nullptr);
 
     // Replace the chart contents. labelStride controls how many bars share one
-    // x-axis label (so dense series don't overlap their labels).
-    void setData(const QList<Bar>& bars, int labelStride = 1);
+    // x-axis label (so dense series don't overlap their labels). bucketSecs is the
+    // span each bar covers, used to render the hover tooltip's time range.
+    void setData(const QList<Bar>& bars, int labelStride = 1, long long bucketSecs = 3600);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -33,8 +34,12 @@ protected:
     void leaveEvent(QEvent* event) override;
 
 private:
+    // Human-readable time span a bar covers, for the hover tooltip.
+    QString bucketRangeText(long long bucketStart) const;
+
     QList<Bar> bars_;
     int labelStride_ = 1;
+    long long bucketSecs_ = 3600; // span of each bar, for the tooltip's range
     // Bar geometry from the last paint, for hover hit-testing (parallel to bars_).
     QList<QRectF> barRects_;
     int hovered_ = -1;

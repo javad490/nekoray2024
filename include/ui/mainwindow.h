@@ -113,8 +113,6 @@ private slots:
 
     void on_menu_basic_settings_triggered();
 
-    void on_menu_traffic_dashboard_triggered();
-
     void on_menu_routing_settings_triggered();
 
     void on_menu_vpn_settings_triggered();

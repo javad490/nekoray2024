@@ -86,6 +86,18 @@
 
 #include "include/sys/macos/MacOS.h"
 
+inline bool dialog_is_using = false;
+
+#define USE_DIALOG(a)                               \
+if (dialog_is_using) return;                    \
+dialog_is_using = true;                         \
+auto dialog = new a(this);                      \
+connect(dialog, &QDialog::finished, this, [=,this] { \
+dialog->deleteLater();                      \
+dialog_is_using = false;                    \
+});                                             \
+dialog->show();
+
 void UI_InitMainWindow() {
     mainwindow = new MainWindow;
 }
@@ -340,14 +352,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     // top bar
     ui->toolButton_program->setMenu(ui->menu_program);
     ui->toolButton_preferences->setMenu(ui->menu_preferences);
-    ui->toolButton_server->setMenu(ui->menu_server);
     ui->toolButton_routing->setMenu(ui->menuRouting_Menu);
-    ui->toolButton_stats->setMenu(ui->menu_stats);
+    ui->toolButton_tools->setMenu(ui->menuTools);
     ui->menubar->setVisible(false);
-    connect(ui->toolButton_update, &QToolButton::clicked, this, [=,this] { runOnNewThread([=,this] { CheckUpdate(); }); });
+    connect(ui->actionTraffic_Stats, &QAction::triggered, this, [=]() {
+        USE_DIALOG(DialogTrafficStats)
+    });
+    connect(ui->actionCheck_For_Update, &QAction::triggered, this, [=,this] { runOnNewThread([=,this] { CheckUpdate(); }); });
     if (!QFile::exists(QApplication::applicationDirPath() + "/updater") && !QFile::exists(QApplication::applicationDirPath() + "/updater.exe"))
     {
-        ui->toolButton_update->hide();
+        ui->actionCheck_For_Update->setDisabled(true);
     }
 
     // setup connection UI
@@ -1446,24 +1460,8 @@ void MainWindow::dialog_message_impl(MwMessage cmd, const QStringList &args) {
 
 // top bar & tray menu
 
-inline bool dialog_is_using = false;
-
-#define USE_DIALOG(a)                               \
-    if (dialog_is_using) return;                    \
-    dialog_is_using = true;                         \
-    auto dialog = new a(this);                      \
-    connect(dialog, &QDialog::finished, this, [=,this] { \
-        dialog->deleteLater();                      \
-        dialog_is_using = false;                    \
-    });                                             \
-    dialog->show();
-
 void MainWindow::on_menu_basic_settings_triggered() {
     USE_DIALOG(DialogBasicSettings)
-}
-
-void MainWindow::on_menu_traffic_dashboard_triggered() {
-    USE_DIALOG(DialogTrafficStats)
 }
 
 void MainWindow::on_menu_manage_groups_triggered() {

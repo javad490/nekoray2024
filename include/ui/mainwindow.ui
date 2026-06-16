@@ -48,7 +48,8 @@ QToolButton::menu-indicator {
          <string>Application</string>
         </property>
         <property name="icon">
-         <iconset theme="b-system-run"/>
+         <iconset resource="../../res/Throne.qrc">
+          <normaloff>:/icon/b-system-run.png</normaloff>:/icon/b-system-run.png</iconset>
         </property>
         <property name="iconSize">
          <size>
@@ -89,48 +90,8 @@ QToolButton::menu-indicator {
          <string>Settings</string>
         </property>
         <property name="icon">
-         <iconset theme="b-preferences"/>
-        </property>
-        <property name="iconSize">
-         <size>
-          <width>24</width>
-          <height>24</height>
-         </size>
-        </property>
-        <property name="popupMode">
-         <enum>QToolButton::ToolButtonPopupMode::InstantPopup</enum>
-        </property>
-        <property name="toolButtonStyle">
-         <enum>Qt::ToolButtonStyle::ToolButtonTextUnderIcon</enum>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QToolButton" name="toolButton_server">
-        <property name="minimumSize">
-         <size>
-          <width>0</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="styleSheet">
-         <string notr="true">QToolButton {
-    padding-left: 8px;
-    padding-right: 8px;
-}
-
-QToolButton::menu-indicator {
-    subcontrol-origin: border;
-    subcontrol-position: bottom right;
-    right: 2px;
-    bottom: 3px;
-}</string>
-        </property>
-        <property name="text">
-         <string>Profiles</string>
-        </property>
-        <property name="icon">
-         <iconset theme="b-network-server"/>
+         <iconset resource="../../res/Throne.qrc">
+          <normaloff>:/icon/b-preferences.png</normaloff>:/icon/b-preferences.png</iconset>
         </property>
         <property name="iconSize">
          <size>
@@ -171,7 +132,8 @@ QToolButton::menu-indicator {
          <string>Routing</string>
         </property>
         <property name="icon">
-         <iconset theme="b-network-routing"/>
+         <iconset resource="../../res/Throne.qrc">
+          <normaloff>:/icon/b-network-routing.png</normaloff>:/icon/b-network-routing.png</iconset>
         </property>
         <property name="iconSize">
          <size>
@@ -188,7 +150,7 @@ QToolButton::menu-indicator {
        </widget>
       </item>
       <item>
-       <widget class="QToolButton" name="toolButton_stats">
+       <widget class="QToolButton" name="toolButton_tools">
         <property name="minimumSize">
          <size>
           <width>0</width>
@@ -209,48 +171,11 @@ QToolButton::menu-indicator {
 }</string>
         </property>
         <property name="text">
-         <string>Statistics</string>
-        </property>
-        <property name="iconSize">
-         <size>
-          <width>24</width>
-          <height>24</height>
-         </size>
-        </property>
-        <property name="popupMode">
-         <enum>QToolButton::ToolButtonPopupMode::InstantPopup</enum>
-        </property>
-        <property name="toolButtonStyle">
-         <enum>Qt::ToolButtonStyle::ToolButtonTextUnderIcon</enum>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QToolButton" name="toolButton_update">
-        <property name="minimumSize">
-         <size>
-          <width>0</width>
-          <height>0</height>
-         </size>
-        </property>
-        <property name="styleSheet">
-         <string notr="true">QToolButton {
-    padding-left: 8px;
-    padding-right: 8px;
-}
-
-QToolButton::menu-indicator {
-    subcontrol-origin: border;
-    subcontrol-position: bottom right;
-    right: 2px;
-    bottom: 3px;
-}</string>
-        </property>
-        <property name="text">
-         <string>Update</string>
+         <string>Tools</string>
         </property>
         <property name="icon">
-         <iconset theme="b-system-software-update"/>
+         <iconset resource="../../res/Throne.qrc">
+          <normaloff>:/icon/b-tools-button.png</normaloff>:/icon/b-tools-button.png</iconset>
         </property>
         <property name="iconSize">
          <size>
@@ -792,18 +717,19 @@ QTabBar::tab:selected {
      <string>Routing Menu</string>
     </property>
    </widget>
-   <widget class="QMenu" name="menu_stats">
+   <widget class="QMenu" name="menuTools">
     <property name="title">
-     <string>Statistics</string>
+     <string>Tools</string>
     </property>
-    <addaction name="menu_traffic_dashboard"/>
+    <addaction name="actionTraffic_Stats"/>
+    <addaction name="actionCheck_For_Update"/>
    </widget>
    <addaction name="menu_program"/>
    <addaction name="menu_preferences"/>
    <addaction name="menu_server"/>
    <addaction name="menuHidden_menu"/>
    <addaction name="menuRouting_Menu"/>
-   <addaction name="menu_stats"/>
+   <addaction name="menuTools"/>
   </widget>
   <action name="menu_exit">
    <property name="text">
@@ -818,11 +744,6 @@ QTabBar::tab:selected {
   <action name="menu_basic_settings">
    <property name="text">
     <string>Basic Settings</string>
-   </property>
-  </action>
-  <action name="menu_traffic_dashboard">
-   <property name="text">
-    <string>Show Dashboard</string>
    </property>
   </action>
   <action name="menu_add_from_input">
@@ -1269,6 +1190,16 @@ QTabBar::tab:selected {
     <string>Clear Test Result</string>
    </property>
   </action>
+  <action name="actionTraffic_Stats">
+   <property name="text">
+    <string>Traffic Stats</string>
+   </property>
+  </action>
+  <action name="actionCheck_For_Update">
+   <property name="text">
+    <string>Check For Update</string>
+   </property>
+  </action>
  </widget>
  <customwidgets>
   <customwidget>
@@ -1277,6 +1208,8 @@ QTabBar::tab:selected {
    <header>include/ui/utils/ProfilesTableView.h</header>
   </customwidget>
  </customwidgets>
- <resources/>
+ <resources>
+  <include location="../../res/Throne.qrc"/>
+ </resources>
  <connections/>
 </ui>

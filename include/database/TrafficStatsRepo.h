@@ -4,6 +4,7 @@
 #include <QString>
 #include <QList>
 #include <mutex>
+#include <string>
 
 namespace Configs {
     // One time-bucketed usage row. bucket_start is a unix epoch second aligned
@@ -100,14 +101,21 @@ namespace Configs {
         // --- reads: time series totalled across configs/apps over [fromSecs,
         // toSecs), grouped into buckets of bucketSecs (e.g. 3600 for hourly,
         // 86400 for daily). Buckets with no traffic are omitted; the caller fills
-        // gaps. Ordered by bucket_start ascending. ---
-        QList<TrafficSeriesPoint> QueryConfigSeries(long long fromSecs, long long toSecs, long long bucketSecs);
-        QList<TrafficSeriesPoint> QueryAppSeries(long long fromSecs, long long toSecs, long long bucketSecs);
+        // gaps. Ordered by bucket_start ascending. Rows are stored on UTC-aligned
+        // boundaries; utcOffsetSecs (the viewer's offset east of UTC) shifts the
+        // grouping so a "day"/"hour" bucket lands on the local calendar boundary,
+        // and the returned bucket_start is the epoch of that local boundary. ---
+        QList<TrafficSeriesPoint> QueryConfigSeries(long long fromSecs, long long toSecs, long long bucketSecs, long long utcOffsetSecs);
+        QList<TrafficSeriesPoint> QueryAppSeries(long long fromSecs, long long toSecs, long long bucketSecs, long long utcOffsetSecs);
 
     private:
         Database& db;
         std::mutex mu;
 
         void createTables() const;
+        // SQL fragment computing a row's local-aligned bucket_start (see the
+        // QuerySeries doc above). A member rather than a file-local helper so the
+        // unity build can't collide its symbol with another translation unit's.
+        static std::string bucketExpr(long long bucketSecs, long long utcOffsetSecs);
     };
 }

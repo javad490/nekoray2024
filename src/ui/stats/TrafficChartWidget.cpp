@@ -27,11 +27,25 @@ TrafficChartWidget::TrafficChartWidget(QWidget* parent) : QWidget(parent) {
     setMouseTracking(true);
 }
 
-void TrafficChartWidget::setData(const QList<Bar>& bars, int labelStride) {
+void TrafficChartWidget::setData(const QList<Bar>& bars, int labelStride, long long bucketSecs) {
     bars_ = bars;
     labelStride_ = labelStride < 1 ? 1 : labelStride;
+    bucketSecs_ = bucketSecs > 0 ? bucketSecs : 3600;
     hovered_ = -1;
     update();
+}
+
+QString TrafficChartWidget::bucketRangeText(long long bucketStart) const {
+    // A bar is a span, not an instant: a daily bucket reads as its calendar date,
+    // an hourly (or finer) bucket as "start – end" on the local clock. Times come
+    // from fromSecsSinceEpoch, which renders in the system timezone.
+    const QDateTime start = QDateTime::fromSecsSinceEpoch(bucketStart);
+    if (bucketSecs_ >= 86400LL) {
+        return start.toString("ddd, yyyy-MM-dd");
+    }
+    const QDateTime end = QDateTime::fromSecsSinceEpoch(bucketStart + bucketSecs_);
+    return QString("%1  %2 – %3").arg(start.toString("yyyy-MM-dd"),
+                                      start.toString("HH:mm"), end.toString("HH:mm"));
 }
 
 void TrafficChartWidget::paintEvent(QPaintEvent*) {
@@ -134,7 +148,7 @@ void TrafficChartWidget::mouseMoveEvent(QMouseEvent* event) {
     }
     if (hit >= 0 && hit < bars_.size()) {
         const auto& b = bars_[hit];
-        const auto when = QDateTime::fromSecsSinceEpoch(b.bucketStart).toString("yyyy-MM-dd HH:mm");
+        const auto when = bucketRangeText(b.bucketStart);
         QToolTip::showText(event->globalPosition().toPoint(),
                            QString("%1\n↓ %2   ↑ %3\nΣ %4")
                                .arg(when, ReadableSize(b.down), ReadableSize(b.up),
