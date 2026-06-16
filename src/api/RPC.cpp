@@ -415,17 +415,17 @@ namespace API {
         }
     }
 
-    libcore::ListConnectionsResp Client::ListConnections() const
+    libcore::QueryConnectionsResp Client::QueryConnections() const
     {
         libcore::EmptyReq request;
-        libcore::ListConnectionsResp reply;
+        libcore::QueryConnectionsResp reply;
         std::vector<uint8_t> resp;
-        auto status = channel->Call("ListConnections", spb::pb::serialize<std::string>(request), resp);
+        auto status = channel->Call("QueryConnections", spb::pb::serialize<std::string>(request), resp);
 
         if (status == CALL_OK && tryDeserialize(resp, reply)) {
             return reply;
         }
-        if (status != CALL_OK) MW_show_log("Failed to list connections: IPC error");
+        if (status != CALL_OK) MW_show_log("Failed to query connections: IPC error");
         return {};
     }
 

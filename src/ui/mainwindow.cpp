@@ -17,6 +17,7 @@
 #include "include/ui/setting/dialog_manage_routes.h"
 #include "include/ui/setting/dialog_vpn_settings.h"
 #include "include/ui/setting/dialog_hotkey.h"
+#include "include/ui/stats/dialog_traffic_stats.h"
 
 #include "3rdparty/qrcodegen.hpp"
 #include "3rdparty/qv2ray/v2/ui/LogHighlighter.hpp"
@@ -36,6 +37,11 @@
 #include "3rdparty/WinCommander.hpp"
 #include "include/sys/windows/WinVersion.h"
 #include <Wbemidl.h>
+// <Wbemidl.h> pulls in winspool.h, which does `#define SetPort SetPortW`.
+// Under the unity build that macro leaks into other files concatenated into
+// this translation unit and clobbers Configs::outbound::SetPort. Drop it; the
+// Win32 printing SetPort is never used here.
+#undef SetPort
 #else
 #ifdef Q_OS_LINUX
 #include "include/sys/linux/LinuxCap.h"
@@ -336,6 +342,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     ui->toolButton_preferences->setMenu(ui->menu_preferences);
     ui->toolButton_server->setMenu(ui->menu_server);
     ui->toolButton_routing->setMenu(ui->menuRouting_Menu);
+    ui->toolButton_stats->setMenu(ui->menu_stats);
     ui->menubar->setVisible(false);
     connect(ui->toolButton_update, &QToolButton::clicked, this, [=,this] { runOnNewThread([=,this] { CheckUpdate(); }); });
     if (!QFile::exists(QApplication::applicationDirPath() + "/updater") && !QFile::exists(QApplication::applicationDirPath() + "/updater.exe"))
@@ -1453,6 +1460,10 @@ inline bool dialog_is_using = false;
 
 void MainWindow::on_menu_basic_settings_triggered() {
     USE_DIALOG(DialogBasicSettings)
+}
+
+void MainWindow::on_menu_traffic_dashboard_triggered() {
+    USE_DIALOG(DialogTrafficStats)
 }
 
 void MainWindow::on_menu_manage_groups_triggered() {

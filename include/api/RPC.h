@@ -38,7 +38,7 @@ namespace API {
 
         QString SetSystemDNS(bool *rpcOK, bool clear) const;
 
-        [[nodiscard]] libcore::ListConnectionsResp ListConnections() const;
+        [[nodiscard]] libcore::QueryConnectionsResp QueryConnections() const;
 
         QString CheckConfig(bool *rpcOK, const QString& config) const;
 

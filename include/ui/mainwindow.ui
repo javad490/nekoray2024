@@ -188,6 +188,44 @@ QToolButton::menu-indicator {
        </widget>
       </item>
       <item>
+       <widget class="QToolButton" name="toolButton_stats">
+        <property name="minimumSize">
+         <size>
+          <width>0</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">QToolButton {
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+QToolButton::menu-indicator {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    right: 2px;
+    bottom: 3px;
+}</string>
+        </property>
+        <property name="text">
+         <string>Statistics</string>
+        </property>
+        <property name="iconSize">
+         <size>
+          <width>24</width>
+          <height>24</height>
+         </size>
+        </property>
+        <property name="popupMode">
+         <enum>QToolButton::ToolButtonPopupMode::InstantPopup</enum>
+        </property>
+        <property name="toolButtonStyle">
+         <enum>Qt::ToolButtonStyle::ToolButtonTextUnderIcon</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QToolButton" name="toolButton_update">
         <property name="minimumSize">
          <size>
@@ -754,11 +792,18 @@ QTabBar::tab:selected {
      <string>Routing Menu</string>
     </property>
    </widget>
+   <widget class="QMenu" name="menu_stats">
+    <property name="title">
+     <string>Statistics</string>
+    </property>
+    <addaction name="menu_traffic_dashboard"/>
+   </widget>
    <addaction name="menu_program"/>
    <addaction name="menu_preferences"/>
    <addaction name="menu_server"/>
    <addaction name="menuHidden_menu"/>
    <addaction name="menuRouting_Menu"/>
+   <addaction name="menu_stats"/>
   </widget>
   <action name="menu_exit">
    <property name="text">
@@ -773,6 +818,11 @@ QTabBar::tab:selected {
   <action name="menu_basic_settings">
    <property name="text">
     <string>Basic Settings</string>
+   </property>
+  </action>
+  <action name="menu_traffic_dashboard">
+   <property name="text">
+    <string>Show Dashboard</string>
    </property>
   </action>
   <action name="menu_add_from_input">

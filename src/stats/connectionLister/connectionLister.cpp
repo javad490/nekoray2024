@@ -3,6 +3,7 @@
 #include <include/api/RPC.h>
 #include "include/ui/mainwindow_interface.h"
 #include <include/stats/connections/connectionLister.hpp>
+#include "include/stats/traffic/TrafficStatsManager.hpp"
 
 
 
@@ -38,28 +39,36 @@ namespace Stats
         }
     }
 
+    // Map one wire connection into the in-memory metadata used by the UI table.
+    static ConnectionMetadata metaFromProto(const libcore::ConnectionMetaData& conn)
+    {
+        ConnectionMetadata c;
+        c.id = QString::fromStdString(conn.id.value());
+        c.createdAtMs = conn.created_at.value();
+        c.dest = QString::fromStdString(conn.dest.value());
+        c.upload = conn.upload.value();
+        c.download = conn.download.value();
+        c.domain = QString::fromStdString(conn.domain.value());
+        c.network = QString::fromStdString(conn.network.value());
+        c.outbound = QString::fromStdString(conn.outbound.value());
+        c.process = QString::fromStdString(conn.process.value());
+        c.processPath = QString::fromStdString(conn.process_path.value());
+        c.protocol = QString::fromStdString(conn.protocol.value());
+        c.closedAtMs = conn.closed_at.value();
+        return c;
+    }
+
     void ConnectionLister::update()
     {
-        libcore::ListConnectionsResp resp = API::defaultClient->ListConnections();
+        libcore::QueryConnectionsResp resp = API::defaultClient->QueryConnections();
 
         QMap<QString, ConnectionMetadata> toUpdate;
         QMap<QString, ConnectionMetadata> toAdd;
         QSet<QString> newState;
         QList<ConnectionMetadata> sorted;
-        auto conns = resp.connections;
-        for (auto conn : conns)
+        for (const auto& conn : resp.active)
         {
-            auto c = ConnectionMetadata();
-            c.id = QString(conn.id.value().c_str());
-            c.createdAtMs = conn.created_at.value();
-            c.dest = QString(conn.dest.value().c_str());
-            c.upload = conn.upload.value();
-            c.download = conn.download.value();
-            c.domain = QString(conn.domain.value().c_str());
-            c.network = QString(conn.network.value().c_str());
-            c.outbound = QString(conn.outbound.value().c_str());
-            c.process = QString(conn.process.value().c_str());
-            c.protocol = QString(conn.protocol.value().c_str());
+            auto c = metaFromProto(conn);
             if (sort == Default)
             {
                 if (state->contains(c.id))
@@ -78,6 +87,54 @@ namespace Stats
 
         state->clear();
         for (const auto& id : newState) state->insert(id);
+
+        // One enriched poll, two consumers: the connection table above, and the
+        // per-app traffic module here. Diff each connection's cumulative byte
+        // counters across the live set plus the recently-closed ring (deduped by
+        // id), so a connection that opened and closed between polls is still
+        // counted. Gated by the traffic-stats toggle; the lister itself already
+        // requires connection stats (enable_stats) to run.
+        if (!Configs::dataManager->settingsRepo->disable_traffic_stats)
+        {
+            QHash<QString, QPair<qint64, qint64>> newLast;
+            QSet<QString> currentClosed;
+
+            auto credit = [&](const libcore::ConnectionMetaData& cm, qint64 curUp, qint64 curDown)
+            {
+                const QString id = QString::fromStdString(cm.id.value());
+                qint64 baseUp = 0, baseDown = 0;
+                if (const auto it = lastBytes_.constFind(id); it != lastBytes_.constEnd())
+                {
+                    baseUp = it->first;
+                    baseDown = it->second;
+                }
+                qint64 dUp = curUp - baseUp;
+                qint64 dDown = curDown - baseDown;
+                if (dUp < 0) dUp = 0; // counters only grow; guard against any reset
+                if (dDown < 0) dDown = 0;
+                if (dUp == 0 && dDown == 0) return;
+                QString name = QString::fromStdString(cm.process.value());
+                if (name.isEmpty()) name = "Unknown";
+                trafficStatsManager->AddAppDelta(name, QString::fromStdString(cm.process_path.value()), dUp, dDown);
+            };
+
+            for (const auto& cm : resp.active)
+            {
+                const qint64 up = cm.upload.value();
+                const qint64 down = cm.download.value();
+                credit(cm, up, down);
+                newLast.insert(QString::fromStdString(cm.id.value()), {up, down});
+            }
+            for (const auto& cm : resp.closed)
+            {
+                const QString id = QString::fromStdString(cm.id.value());
+                currentClosed.insert(id);
+                if (accountedClosed_.contains(id)) continue;
+                credit(cm, cm.upload.value(), cm.download.value());
+            }
+            lastBytes_ = newLast;             // drop evicted / now-closed live ids
+            accountedClosed_ = currentClosed; // everything in the ring is accounted
+        }
 
         if (sort == Default)
         {

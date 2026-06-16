@@ -8,6 +8,9 @@
 #include <QElapsedTimer>
 
 #include "include/database/ProfilesRepo.h"
+#include "include/database/GroupsRepo.h"
+#include "include/database/DatabaseManager.h"
+#include "include/stats/traffic/TrafficStatsManager.hpp"
 
 
 namespace Stats {
@@ -40,6 +43,8 @@ namespace Stats {
             for (auto& profile : group.profiles) {
                 profile->traffic_uplink += up;
                 profile->traffic_downlink += down;
+                // Mirror the per-profile crediting into the time-series module.
+                trafficStatsManager->AddConfigDelta(profile->id, up, down);
             }
             group.uplink_rate = static_cast<double>(up) * 1000.0 / static_cast<double>(interval);
             group.downlink_rate = static_cast<double>(down) * 1000.0 / static_cast<double>(interval);
@@ -60,6 +65,7 @@ namespace Stats {
                 const auto down = resp.downs.at(directTag);
                 direct->uplink_rate = static_cast<double>(up) * 1000.0 / static_cast<double>(interval);
                 direct->downlink_rate = static_cast<double>(down) * 1000.0 / static_cast<double>(interval);
+                trafficStatsManager->AddConfigDelta(DIRECT_STAT_PROFILE_ID, up, down);
             }
         }
     }
@@ -141,6 +147,23 @@ namespace Stats {
             groups.append(g);
         }
         direct_last_update = now;
+
+        // Snapshot reference metadata for the statistics module so per-config
+        // history stays meaningful even after a profile is renamed or removed.
+        trafficStatsManager->EnsureDirectMeta();
+        for (const auto& g : groups) {
+            for (const auto& p : g.profiles) {
+                if (!p || p->id < 0) continue;
+                QString groupName;
+                if (const auto grp = Configs::dataManager->groupsRepo->GetGroup(p->gid)) groupName = grp->name;
+                trafficStatsManager->SnapshotConfigMeta(
+                    p->id,
+                    p->outbound ? p->outbound->DisplayName() : p->name,
+                    groupName,
+                    p->type,
+                    p->outbound ? p->outbound->DisplayAddress() : QString());
+            }
+        }
     }
 
 } // namespace Stats

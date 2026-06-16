@@ -76,6 +76,7 @@ namespace Configs {
             {"font_size",              &font_size},
             {"max_log_line",           &max_log_line},
             {"stats_tab",              &stats_tab},
+            {"traffic_stats_retention_days", &traffic_stats_retention_days},
             {"sub_auto_update",        &sub_auto_update},
             {"vpn_mtu",                &vpn_mtu},
             {"ntp_server_port",        &ntp_server_port},

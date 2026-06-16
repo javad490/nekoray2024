@@ -94,6 +94,8 @@ set(PROJECT_SOURCES
         src/api/RPC.cpp
 
         src/stats/traffic/TrafficLooper.cpp
+        include/stats/traffic/TrafficStatsManager.hpp
+        src/stats/traffic/TrafficStatsManager.cpp
 
         include/configs/sub/GroupUpdater.hpp
         src/configs/sub/GroupUpdater.cpp
@@ -204,6 +206,11 @@ set(PROJECT_SOURCES
         src/ui/setting/dialog_vpn_settings.cpp
         include/ui/setting/dialog_vpn_settings.h
         include/ui/setting/dialog_vpn_settings.ui
+
+        src/ui/stats/dialog_traffic_stats.cpp
+        include/ui/stats/dialog_traffic_stats.h
+        src/ui/stats/TrafficChartWidget.cpp
+        include/ui/stats/TrafficChartWidget.h
 
         src/ui/setting/dialog_hotkey.cpp
         include/ui/setting/dialog_hotkey.h
@@ -329,6 +336,7 @@ set(PROJECT_SOURCES
         include/database/GroupsRepo.h
         include/database/RoutesRepo.h
         include/database/SettingsRepo.h
+        include/database/TrafficStatsRepo.h
 
         include/database/entities/Profile.h
         include/database/entities/Group.h
@@ -343,6 +351,7 @@ set(PROJECT_SOURCES
         src/database/ProfilesRepo.cpp
         src/database/GroupsRepo.cpp
         src/database/RoutesRepo.cpp
+        src/database/TrafficStatsRepo.cpp
 
         include/database/DatabaseManager.h
         src/database/DatabaseManager.cpp

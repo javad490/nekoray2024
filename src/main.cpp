@@ -15,6 +15,7 @@
 #include "include/global/Configs.hpp"
 
 #include "include/ui/mainwindow_interface.h"
+#include "include/stats/traffic/TrafficStatsManager.hpp"
 
 #ifdef Q_OS_WIN
 #include "include/sys/windows/MiniDump.h"
@@ -157,6 +158,9 @@ int main(int argc, char* argv[]) {
 
     // Load database
     Configs::initDB(QString(QDir::currentPath() + QDir::separator() + "throne.db").toStdString());
+
+    // Start traffic-statistics maintenance (startup downsample + background rollup).
+    Stats::trafficStatsManager->Init();
 
     // Store Flags
     Configs::dataManager->settingsRepo->argv = arguments;

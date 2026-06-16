@@ -113,6 +113,8 @@ private slots:
 
     void on_menu_basic_settings_triggered();
 
+    void on_menu_traffic_dashboard_triggered();
+
     void on_menu_routing_settings_triggered();
 
     void on_menu_vpn_settings_triggered();
@@ -177,6 +179,13 @@ private:
     std::atomic<bool> stopSpeedtest = false;
     QMutex speedtestRunning;
     std::atomic<bool> currentUnderTest = false;
+    // Speed-test byte accounting. Tests bypass the clash tracker (they dial the
+    // outbound directly), so their traffic is counted only here: the core reports
+    // each test's cumulative bytes, and we diff against the last reported value
+    // per outbound tag to credit the delta. Guarded so the live micro-poll and
+    // the final reconciliation pass don't race.
+    QMutex speedtestCreditMu_;
+    QHash<QString, QPair<qint64, qint64>> speedtestCredited_;
     //
     Configs_sys::CoreProcess *core_process = nullptr;
     QMutex coreProcessMutex; // serializes core_process init (DS_cores) vs IPC newConnection (UI)
@@ -345,6 +354,14 @@ private:
     void setupConnectionList();
 
     void querySpeedtest(const QMap<QString, int>& tag2entID, bool testCurrent);
+
+    // Credit the delta between a test's cumulative bytes (curUp/curDown) and the
+    // last reported values for `tag`. Feeds the time-series stats (the tested
+    // config + a synthetic "Speedtest" app) and the legacy per-profile total.
+    // Speed tests bypass the clash tracker, so the looper never sees these bytes;
+    // this is the only place they are counted, for both a selected-profile test
+    // and a current-instance test.
+    void creditSpeedtestTraffic(const std::shared_ptr<Configs::Profile>& profile, const QString& tag, qint64 curUp, qint64 curDown);
 
     void queryCountryTest(const QMap<QString, int>& tag2entID, bool testCurrent);
 

@@ -1,12 +1,21 @@
 #include "include/database/GroupsRepo.h"
 #include "include/database/ProfilesRepo.h"
 #include "include/database/RoutesRepo.h"
+#include "include/database/TrafficStatsRepo.h"
 
 #include "include/global/Configs.hpp"
 
+#include <QDir>
+#include <QFileInfo>
+
 namespace Configs {
+    std::string DatabaseManager::deriveStatsDbPath(const std::string& dbPath) {
+        const QFileInfo fi(QString::fromStdString(dbPath));
+        return QDir(fi.absolutePath()).filePath("throne_stats.db").toStdString();
+    }
+
     DatabaseManager::DatabaseManager(const std::string& dbPath)
-        : db(dbPath) {
+        : db(dbPath), statsDb(deriveStatsDbPath(dbPath)) {
         // Create entity IDs table first (before repos are initialized)
         createEntityIdsTable(db);
         
@@ -45,5 +54,6 @@ namespace Configs {
         groupsRepo = std::make_unique<GroupsRepo>(db);
         routesRepo = std::make_unique<RoutesRepo>(db);
         settingsRepo = std::make_unique<SettingsRepo>(db);
+        trafficStatsRepo = std::make_unique<TrafficStatsRepo>(statsDb);
     }
 }

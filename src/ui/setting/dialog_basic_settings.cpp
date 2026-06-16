@@ -31,8 +31,6 @@
 #include <QLabel>
 #include <QPushButton>
 
-
-
 #include "include/ui/mainwindow.h"
 
 DialogBasicSettings::DialogBasicSettings(QWidget *parent)

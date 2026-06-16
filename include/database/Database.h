@@ -195,6 +195,14 @@ namespace Configs {
             }
         }
 
+        // Throwing variant of exec(): lets callers compose an explicit
+        // transaction (BEGIN/COMMIT/ROLLBACK) in which a failed statement must
+        // abort the whole unit instead of being swallowed per-statement.
+        template<typename... Args>
+        void execThrow(const std::string& sql, Args&&... args) {
+            exec0(sql, std::forward<Args>(args)...);
+        }
+
         template<typename... Args>
         std::unique_ptr<SQLite::Statement> query(const std::string& sql, Args&&... args) {
             try {

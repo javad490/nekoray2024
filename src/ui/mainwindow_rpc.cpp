@@ -1,6 +1,7 @@
 #include "include/ui/mainwindow.h"
 
 #include "include/stats/traffic/TrafficLooper.hpp"
+#include "include/stats/traffic/TrafficStatsManager.hpp"
 #include "include/api/RPC.h"
 #include "include/ui/utils//MessageBoxTimer.h"
 #include "3rdparty/qv2ray/v2/proxy/QvProxyConfigurator.hpp"
@@ -459,6 +460,8 @@ void MainWindow::speedtest_current_group(const QList<int>& profileIDs, bool test
 
     runOnNewThread([this, profileIDs, testCurrent]() {
         stopSpeedtest.store(false);
+        // Fresh per-tag byte baselines for this speed-test session.
+        { QMutexLocker lk(&speedtestCreditMu_); speedtestCredited_.clear(); }
         if (!testCurrent)
         {
             dataViewHtmlGenerator_.seedSpeedTest(profileIDs.size());
@@ -503,6 +506,42 @@ void MainWindow::speedtest_current_group(const QList<int>& profileIDs, bool test
     });
 }
 
+void MainWindow::creditSpeedtestTraffic(const std::shared_ptr<Configs::Profile>& profile, const QString& tag, qint64 curUp, qint64 curDown)
+{
+    if (profile == nullptr || tag.isEmpty()) return;
+    // Honour the master traffic switch: when stats are disabled the looper records
+    // nothing, so neither do we (matches TrafficLooper::UpdateAll).
+    if (Configs::dataManager->settingsRepo->disable_traffic_stats) return;
+    // The live micro-poll and the final reconciliation can briefly overlap, so
+    // keep the baseline read/update and all crediting under one lock.
+    QMutexLocker lk(&speedtestCreditMu_);
+    auto& base = speedtestCredited_[tag];
+    // Counters are cumulative per test; a re-test of the same tag restarts from
+    // 0, so a drop below the last value means a fresh test — count it from 0 in
+    // that case rather than going negative.
+    const qint64 dUp = curUp >= base.first ? curUp - base.first : curUp;
+    const qint64 dDown = curDown >= base.second ? curDown - base.second : curDown;
+    base = qMakePair(curUp, curDown);
+    if (dUp <= 0 && dDown <= 0) return;
+
+    // Time-series stats: speed tests bypass the clash tracker, so the looper never
+    // sees this traffic — record it here. Per-config goes to the tested profile;
+    // per-app to a synthetic "Speedtest" app so test overhead shows up distinctly
+    // in the dashboard instead of being attributed to a real process.
+    Stats::trafficStatsManager->AddConfigDelta(profile->id, dUp, dDown);
+    Stats::trafficStatsManager->AddAppDelta(Stats::SPEEDTEST_APP_NAME, "", dUp, dDown);
+
+    // Legacy per-profile total. Credited for both a selected-profile test and a
+    // current-instance test: the bytes bypass the clash tracker either way, so
+    // the looper never counts them and a test must show up in the profile's usage
+    // total. For a current-instance test `profile` is the running profile, which
+    // is the same object the looper credits (shared via the repo identity map),
+    // so the additions accumulate correctly rather than racing each other away.
+    profile->traffic_uplink += dUp;
+    profile->traffic_downlink += dDown;
+    Configs::dataManager->profilesRepo->SaveTraffic(profile);
+}
+
 void MainWindow::querySpeedtest(const QMap<QString, int>& tag2entID, bool testCurrent)
 {
     bool ok;
@@ -516,6 +555,11 @@ void MainWindow::querySpeedtest(const QMap<QString, int>& tag2entID, bool testCu
     {
         return;
     }
+    // Enriched micro-poll: credit the test bytes consumed since the last poll.
+    // Speed tests bypass the clash tracker, so this is one of the two places their
+    // traffic is recorded (the other is the final reconciliation in runSpeedTest).
+    creditSpeedtestTraffic(profile, QString::fromStdString(res.result.value().outbound_tag.value()),
+                           res.result.value().ul_bytes.value(), res.result.value().dl_bytes.value());
     runOnUiThread([=, this]
     {
         dataViewHtmlGenerator_.setSpeedtestProgress(profile->outbound->name, res.result.value());
@@ -636,6 +680,15 @@ void MainWindow::runSpeedTest(const QString& config, const QString& xrayConfig, 
             MW_show_log(tr("Profile manager data is corrupted, try again."));
             continue;
         }
+
+        // Final reconciliation: credit any test bytes the live micro-poll hasn't
+        // captured yet — the tail after the last poll, very short tests, and an
+        // aborted test's partial bytes (a cancelled result still carries the bytes
+        // counted up to the abort). Done before the cancelled check so aborted
+        // tests still count. Speed tests bypass the clash tracker, so this and the
+        // micro-poll are the only places their traffic is counted.
+        creditSpeedtestTraffic(ent, QString::fromStdString(res.outbound_tag.value()),
+                               res.ul_bytes.value(), res.dl_bytes.value());
 
         if (res.cancelled.value()) continue;
 
@@ -914,6 +967,8 @@ void MainWindow::profile_stop(bool crash, bool block, bool manual) {
         Stats::trafficLooper->loop_mutex.lock();
         Stats::trafficLooper->UpdateAll();
         Stats::trafficLooper->loop_mutex.unlock();
+        // Persist the final partial minute bucket captured by the UpdateAll above.
+        Stats::trafficStatsManager->Flush();
 
         QMessageBox* restartMsgbox;
         MessageBoxTimer* restartMsgboxTimer;

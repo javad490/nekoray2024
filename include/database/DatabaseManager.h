@@ -9,20 +9,28 @@ namespace Configs {
     class RoutesRepo;
     class GroupsRepo;
     class ProfilesRepo;
+    class TrafficStatsRepo;
 
     void initDB(const std::string& dbPath);
 
     class DatabaseManager {
     private:
         Database db;
-        
+        // Separate database file for the traffic-statistics module, so its
+        // write volume never contends with vital profile/group operations.
+        Database statsDb;
+
         static void createEntityIdsTable(Database& db);
+        // Derive the stats database path (throne_stats.db) as a sibling of the
+        // main database file.
+        static std::string deriveStatsDbPath(const std::string& dbPath);
         void initializeRepos();
     public:
         std::unique_ptr<ProfilesRepo> profilesRepo;
         std::unique_ptr<GroupsRepo> groupsRepo;
         std::unique_ptr<RoutesRepo> routesRepo;
         std::unique_ptr<SettingsRepo> settingsRepo;
+        std::unique_ptr<TrafficStatsRepo> trafficStatsRepo;
 
         explicit DatabaseManager(const std::string& dbPath);
         ~DatabaseManager() = default;
