@@ -32,7 +32,7 @@ namespace {
     class TrafficStatsSizeItem : public QTableWidgetItem {
     public:
         TrafficStatsSizeItem(const QString& text, long long value) : QTableWidgetItem(text) {
-            setData(Qt::UserRole, QVariant::fromValue<qlonglong>(value));
+            QTableWidgetItem::setData(Qt::UserRole, QVariant::fromValue<qlonglong>(value));
             setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
         }
         bool operator<(const QTableWidgetItem& other) const override {

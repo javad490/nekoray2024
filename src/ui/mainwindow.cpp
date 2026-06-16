@@ -18,6 +18,7 @@
 #include "include/ui/setting/dialog_vpn_settings.h"
 #include "include/ui/setting/dialog_hotkey.h"
 #include "include/ui/stats/dialog_traffic_stats.h"
+#include "include/ui/widget/StartStopButton.hpp"
 
 #include "3rdparty/qrcodegen.hpp"
 #include "3rdparty/qv2ray/v2/ui/LogHighlighter.hpp"
@@ -296,6 +297,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     //
     connect(ui->menu_start, &QAction::triggered, this, [=,this]() { profile_start(); });
     connect(ui->menu_stop, &QAction::triggered, this, [=,this]() { profile_stop(false, false, true); });
+    connect(ui->toolButton_startstop, &QAbstractButton::clicked, this, [=,this]() {
+        // The button is disabled while Connecting/Disabled, so a click here means
+        // either a running profile (stop it) or a selected, idle one (start it).
+        if (running != nullptr) profile_stop(false, false, true);
+        else profile_start();
+    });
     connect(ui->tabWidget->tabBar(), &QTabBar::tabMoved, this, [=,this](int from, int to) {
         // use tabData to track tab & gid
         QList<int> tabOrder;
@@ -395,6 +402,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     // table UI: model-backed view with on-demand row data
     profilesTableModel = new ProfilesTableModel(this);
     ui->profilesTableView->setModel(profilesTableModel);
+    // Keep the start/stop button's enabled/disabled state in sync with selection.
+    connect(ui->profilesTableView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+            [this] { refresh_startstop_button(); });
     ui->profilesTableView->rowsSwapped = [=,this](int row1, int row2)
     {
         if (!addressFilterString.isEmpty() || !nameFilterString.isEmpty() || !typeFilterString.isEmpty() || !countryFilterString.isEmpty()) return;
@@ -2034,6 +2044,34 @@ void MainWindow::refresh_status(const QString &traffic_update) {
     }
 
     icon_status = icon_status_new;
+
+    refresh_startstop_button();
+}
+
+void MainWindow::refresh_startstop_button() {
+    auto *btn = ui->toolButton_startstop;
+    if (btn == nullptr) return;
+
+    auto &settings = Configs::dataManager->settingsRepo;
+
+    // Ring colour reflects the active proxy mode (mirrors the tray-icon logic
+    // above); it only shows while running.
+    auto mode = StartStopButton::Mode::Off;
+    if (running != nullptr) {
+        if (settings->spmode_vpn) mode = StartStopButton::Mode::Tun;
+        else if (settings->system_dns_set && settings->spmode_system_proxy) mode = StartStopButton::Mode::SystemProxyDns;
+        else if (settings->system_dns_set) mode = StartStopButton::Mode::Dns;
+        else if (settings->spmode_system_proxy) mode = StartStopButton::Mode::SystemProxy;
+        else mode = StartStopButton::Mode::Core;
+    }
+    btn->setMode(mode);
+
+    StartStopButton::State state;
+    if (m_profileConnecting) state = StartStopButton::State::Connecting;
+    else if (running != nullptr) state = StartStopButton::State::Running;
+    else if (get_now_selected_list().size() == 1) state = StartStopButton::State::Idle;
+    else state = StartStopButton::State::Disabled; // nothing, or multiple, selected
+    btn->setState(state);
 }
 
 void MainWindow::update_traffic_graph(int proxyDl, int proxyUp, int directDl, int directUp)

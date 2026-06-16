@@ -192,6 +192,16 @@ QToolButton::menu-indicator {
        </widget>
       </item>
       <item>
+       <widget class="StartStopButton" name="toolButton_startstop">
+        <property name="focusPolicy">
+         <enum>Qt::FocusPolicy::NoFocus</enum>
+        </property>
+        <property name="text">
+         <string/>
+        </property>
+       </widget>
+      </item>
+      <item>
        <layout class="QVBoxLayout" name="verticalLayout_4">
         <item>
          <widget class="QCheckBox" name="checkBox_VPN">
@@ -1206,6 +1216,11 @@ QTabBar::tab:selected {
    <class>ProfilesTableView</class>
    <extends>QTableView</extends>
    <header>include/ui/utils/ProfilesTableView.h</header>
+  </customwidget>
+  <customwidget>
+   <class>StartStopButton</class>
+   <extends>QToolButton</extends>
+   <header>include/ui/widget/StartStopButton.hpp</header>
   </customwidget>
  </customwidgets>
  <resources>

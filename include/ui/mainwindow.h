@@ -197,6 +197,9 @@ private:
     QString title_error;
     int icon_status = -1;
     std::shared_ptr<Configs::Profile> running;
+    // True from the moment a profile start is kicked off until it succeeds or
+    // fails; drives the start/stop button's transient "Connecting" state.
+    bool m_profileConnecting = false;
     QString traffic_update_cache;
     qint64 last_test_time = 0;
     //
@@ -252,6 +255,7 @@ private:
     QList<int> filterProfilesList(const QList<int>& profileIDs);
 
     QList<int> get_now_selected_list();
+    void refresh_startstop_button();
 
     QList<int> get_selected_or_group();
 

@@ -907,6 +907,12 @@ void MainWindow::profile_start(int _id) {
     connect(restartMsgbox, &QMessageBox::accepted, this, [=,this] { MW_dialog_message(MwMessage::RestartProgram, {}); });
     auto restartMsgboxTimer = new MessageBoxTimer(this, restartMsgbox, 10000);
 
+    // Show the "Connecting" state until the start resolves below.
+    runOnUiThread([this] {
+        m_profileConnecting = true;
+        refresh_startstop_button();
+    });
+
     runOnNewThread([=, this] {
         // stop current running
         if (running != nullptr) {
@@ -921,10 +927,13 @@ void MainWindow::profile_start(int _id) {
         }
         mu_starting.unlock();
         // cancel timeout
-        runOnUiThread([=] {
+        runOnUiThread([=, this] {
             restartMsgboxTimer->cancel();
             restartMsgboxTimer->deleteLater();
             restartMsgbox->deleteLater();
+            // Start has resolved (success or failure); leave the Connecting state.
+            m_profileConnecting = false;
+            refresh_startstop_button();
         });
     });
 }
