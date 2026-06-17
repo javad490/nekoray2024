@@ -25,7 +25,7 @@ class StartStopButton : public QToolButton {
     Q_PROPERTY(QColor ringColor READ ringColor WRITE setRingColor)
 
 public:
-    enum class State { Disabled, Idle, Connecting, Running };
+    enum class State { Disabled, Idle, Connecting, Running, Disconnecting };
     Q_ENUM(State)
 
     // Mirrors the tray-icon modes computed in MainWindow::refresh_status.

@@ -2068,6 +2068,7 @@ void MainWindow::refresh_startstop_button() {
 
     StartStopButton::State state;
     if (m_profileConnecting) state = StartStopButton::State::Connecting;
+    else if (m_profileDisconnecting) state = StartStopButton::State::Disconnecting;
     else if (running != nullptr) state = StartStopButton::State::Running;
     else if (get_now_selected_list().size() == 1) state = StartStopButton::State::Idle;
     else state = StartStopButton::State::Disabled; // nothing, or multiple, selected
@@ -3093,20 +3094,29 @@ void MainWindow::RegisterHotkey(bool unregister) {
     }
 }
 
+void MainWindow::registerMenuShortcuts(QMenu *menu) {
+    for (const auto &action: menu->actions()) {
+        if (auto *sub = action->menu()) {
+            registerMenuShortcuts(sub);
+        } else if (!action->shortcut().isEmpty()) {
+            hiddenMenuShortcuts.append(new QShortcut(action->shortcut(), this, [=,this](){
+                action->trigger();
+            }));
+        }
+    }
+}
+
 void MainWindow::RegisterHiddenMenuShortcuts(bool unregister) {
     for (const auto s : hiddenMenuShortcuts) s->deleteLater();
     hiddenMenuShortcuts.clear();
 
     if (unregister) return;
 
-    for (const auto &action: ui->menuHidden_menu->actions()) {
-        if (!action->shortcut().toString().isEmpty())
-        {
-            hiddenMenuShortcuts.append(new QShortcut(action->shortcut(), this, [=,this](){
-                action->trigger();
-            }));
-        }
-    }
+    registerMenuShortcuts(ui->menuHidden_menu);
+    // menu_server used to ride along on a toolbutton's menu, which kept its action
+    // shortcuts (Start/Return, Delete/Del, …) alive. It's now a right-click-only
+    // popup, so — like the hidden menu — its shortcuts must be registered manually.
+    registerMenuShortcuts(ui->menu_server);
 }
 
 void MainWindow::setActionsData()

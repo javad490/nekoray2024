@@ -73,9 +73,12 @@ void StartStopButton::applyState(bool animated) {
         case State::Idle: setToolTip(tr("Start")); break;
         case State::Connecting: setToolTip(tr("Connecting…")); break;
         case State::Running: setToolTip(tr("Stop")); break;
+        case State::Disconnecting: setToolTip(tr("Stopping…")); break;
     }
 
-    const qreal morphTarget = (m_state == State::Running) ? 1.0 : 0.0;
+    // Keep the stop square while disconnecting; it morphs to the play triangle
+    // only once the profile has actually stopped (mirrors Connecting -> Running).
+    const qreal morphTarget = (m_state == State::Running || m_state == State::Disconnecting) ? 1.0 : 0.0;
     const qreal dimTarget = (m_state == State::Disabled) ? 0.45 : 1.0;
     const QColor ringTarget = targetRingColor();
 
@@ -92,7 +95,7 @@ void StartStopButton::applyState(bool animated) {
         m_ringColor = ringTarget;
     }
 
-    setLoopRunning(m_spinAnim, m_state == State::Connecting);
+    setLoopRunning(m_spinAnim, m_state == State::Connecting || m_state == State::Disconnecting);
     setLoopRunning(m_glowAnim, m_state == State::Running);
     update();
 }
@@ -142,13 +145,14 @@ QColor StartStopButton::idleRingColor() const {
 QColor StartStopButton::glyphColor() const {
     // Semantic, muted glyph colours: a gray-green "go" triangle while idle, a
     // red "stop" square once a profile is running.
-    if (m_state == State::Running) return {0x99, 0x46, 0x46}; // dim, slightly darker red
+    if (m_state == State::Running || m_state == State::Disconnecting) return {0x99, 0x46, 0x46}; // dim, slightly darker red
     return Qt::darkGreen;                                // dim gray-green
 }
 
 QColor StartStopButton::targetRingColor() const {
     switch (m_state) {
-        case State::Connecting: return {0xFF, 0xB3, 0x2C}; // amber "working"
+        case State::Connecting:
+        case State::Disconnecting: return {0xFF, 0xB3, 0x2C}; // amber "working"
         case State::Running: return modeColor(m_mode);
         default: return idleRingColor();
     }
@@ -169,8 +173,8 @@ void StartStopButton::paintEvent(QPaintEvent *) {
     opt.features &= ~QStyleOptionToolButton::HasMenu;
     opt.subControls &= ~QStyle::SC_ToolButtonMenu;
     opt.arrowType = Qt::NoArrow;
-    if (m_state == State::Connecting) {
-        // Keep the frame looking active while connecting, even though clicks
+    if (m_state == State::Connecting || m_state == State::Disconnecting) {
+        // Keep the frame looking active during a transition, even though clicks
         // are disabled (there is no cancel).
         opt.state |= QStyle::State_Enabled;
         opt.state &= ~QStyle::State_Sunken;
@@ -194,7 +198,7 @@ void StartStopButton::paintEvent(QPaintEvent *) {
 
     p.setOpacity(m_dim);
 
-    if (m_state == State::Connecting) {
+    if (m_state == State::Connecting || m_state == State::Disconnecting) {
         // Faint full track with a bright round-capped arc sweeping over it.
         p.setBrush(Qt::NoBrush);
         QColor track = m_ringColor;
@@ -291,8 +295,8 @@ void StartStopButton::paintEvent(QPaintEvent *) {
     QPen gpen(QBrush(lg), corner);
     gpen.setJoinStyle(Qt::RoundJoin);
     gpen.setCapStyle(Qt::RoundCap);
-    // The glyph fades back while connecting so the spinner reads as the action.
-    const qreal glyphAlpha = (m_state == State::Connecting) ? 0.5 : 1.0;
+    // The glyph fades back during a transition so the spinner reads as the action.
+    const qreal glyphAlpha = (m_state == State::Connecting || m_state == State::Disconnecting) ? 0.5 : 1.0;
     p.setOpacity(m_dim * glyphAlpha);
     p.setPen(gpen);
     p.setBrush(QBrush(lg));

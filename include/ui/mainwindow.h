@@ -200,6 +200,8 @@ private:
     // True from the moment a profile start is kicked off until it succeeds or
     // fails; drives the start/stop button's transient "Connecting" state.
     bool m_profileConnecting = false;
+    // True while a profile stop is in progress; drives the "Disconnecting" state.
+    bool m_profileDisconnecting = false;
     QString traffic_update_cache;
     qint64 last_test_time = 0;
     //
@@ -320,6 +322,10 @@ private:
     void HotkeyEvent(const QString &key);
 
     void RegisterHiddenMenuShortcuts(bool unregister = false);
+    // Register a QShortcut for every action in `menu` (recursing into submenus),
+    // appending them to hiddenMenuShortcuts. Needed because the menubar is hidden,
+    // so actions reachable only through popup menus get no shortcut on their own.
+    void registerMenuShortcuts(QMenu *menu);
 
     void setActionsData();
 

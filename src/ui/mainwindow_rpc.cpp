@@ -970,6 +970,12 @@ void MainWindow::profile_stop(bool crash, bool block, bool manual) {
 
     UpdateConnectionListWithRecreate({});
 
+    // Show a "Disconnecting" spinner immediately; the stop itself can lag.
+    runOnUiThread([this] {
+        m_profileDisconnecting = true;
+        refresh_startstop_button();
+    });
+
     runOnNewThread([=, this] {
         Stats::trafficLooper->loop_enabled = false;
         Stats::connection_lister->suspend = true;
@@ -1007,6 +1013,7 @@ void MainWindow::profile_stop(bool crash, bool block, bool manual) {
             m_boundEgressInterface.clear();
             m_ifcChangeStreak = 0;
 
+            m_profileDisconnecting = false;
             refresh_status();
             refresh_proxy_list({id});
 
