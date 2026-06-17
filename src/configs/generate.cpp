@@ -1750,7 +1750,7 @@ namespace Configs {
         for (const auto& proxy : profiles) entIDs << proxy->id;
         ctx->buildPrerequisities->dnsDeps->directDomains = QListStr2QJsonArray(getEntDomains(entIDs, ctx->error));
         if (!ctx->buildPrerequisities->dnsDeps->directDomains.isEmpty()) ctx->buildPrerequisities->dnsDeps->needDirectDnsRules = true;
-        buildDNSSection(ctx);
+        buildDNSSection(ctx, false);
         if (!ctx->error.isEmpty())
         {
             res->error = ctx->error;
