@@ -18,6 +18,26 @@ namespace Configs {
         }
     }
 
+    void Database::maybeVacuum() {
+        try {
+            const long long freePages = db.execAndGet("PRAGMA freelist_count").getInt64();
+            const long long pageCount = db.execAndGet("PRAGMA page_count").getInt64();
+            const long long pageSize  = db.execAndGet("PRAGMA page_size").getInt64();
+            if (pageCount <= 0 || pageSize <= 0 || freePages <= 0) return;
+
+            const long long freeBytes = freePages * pageSize;
+            const double freeRatio = static_cast<double>(freePages) / static_cast<double>(pageCount);
+            if (freeBytes < VACUUM_MIN_FREE_BYTES || freeRatio < VACUUM_MIN_FREE_RATIO) return;
+
+            // VACUUM rebuilds the database; in WAL mode the on-disk shrink only
+            // lands when the WAL is checkpointed, so truncate it afterwards.
+            db.exec("VACUUM");
+            checkpointWal();
+        } catch (std::exception& e) {
+            std::cerr << "DB VACUUM check error: " << e.what() << std::endl;
+        }
+    }
+
     void Database::execDeleteByIdInChunk(const std::string& table, const std::string& idColumn, const std::vector<int>& ids) {
         if (ids.empty()) return;
         std::string sql = "DELETE FROM " + table + " WHERE " + idColumn + " IN (";
