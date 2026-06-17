@@ -40,7 +40,9 @@ namespace API {
 
         [[nodiscard]] libcore::QueryConnectionsResp QueryConnections() const;
 
-        QString CheckConfig(bool *rpcOK, const QString& config) const;
+        // isXray selects the validating core: false (default) validates a
+        // sing-box config, true validates an Xray-format config.
+        QString CheckConfig(bool *rpcOK, const QString& config, bool isXray = false) const;
 
         bool IsPrivileged(bool *rpcOK) const;
 

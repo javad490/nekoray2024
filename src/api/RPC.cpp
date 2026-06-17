@@ -429,9 +429,17 @@ namespace API {
         return {};
     }
 
-    QString Client::CheckConfig(bool* rpcOK, const QString& config) const
+    QString Client::CheckConfig(bool* rpcOK, const QString& config, bool isXray) const
     {
-        libcore::LoadConfigReq request{.core_config = config.toStdString()};
+        libcore::LoadConfigReq request;
+        if (isXray)
+        {
+            request.need_xray = true;
+            request.xray_config = config.toStdString();
+        } else
+        {
+            request.core_config = config.toStdString();
+        }
         libcore::ErrorResp reply;
         std::vector<uint8_t> resp;
         auto status = channel->Call("CheckConfig", spb::pb::serialize<std::string>(request), resp);

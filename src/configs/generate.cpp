@@ -1706,6 +1706,34 @@ namespace Configs {
                 return true;
             }
         }
+        // Xray profiles (native Xray outbounds and custom Xray outbounds) carry
+        // an Xray-format outbound that sing-box can't parse — its sing-box
+        // Build() is only a dummy placeholder. Validate the real outbound via
+        // the Xray core instead. Custom full configs never reach here (handled
+        // above), so IsXray() cleanly selects the Xray-validation path.
+        if (!fullConf && ent->outbound->IsXray())
+        {
+            auto [out, err] = ent->outbound->BuildXray();
+            if (!err.isEmpty())
+            {
+                MW_show_log("Invalid Xray ent " + ent->outbound->name + ": " + err);
+                return false;
+            }
+            QJsonObject xrayConf{
+                {"outbounds", QJsonArray{out}},
+            };
+            bool ok;
+            auto resp = API::defaultClient->CheckConfig(&ok, QJsonObject2QString(xrayConf, true), true);
+            if (!ok)
+            {
+                MW_show_log("Failed to Call the Core: " + resp);
+                return false;
+            }
+            if (resp.isEmpty()) return true;
+            // else
+            MW_show_log("Invalid Xray ent " + ent->outbound->name + ": " + resp);
+            return false;
+        }
         if (!fullConf)
         {
             auto out = ent->outbound->Build();
