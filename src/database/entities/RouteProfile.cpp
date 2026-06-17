@@ -663,7 +663,7 @@ namespace Configs {
 
     void RouteProfile::FilterEmptyRules() {
         QList<std::shared_ptr<RouteRule>> newRules;
-        for (auto rule : Rules) {
+        for (const auto& rule : Rules) {
             if (!rule->isEmpty()) newRules.append(rule);
         }
         Rules = newRules;
@@ -671,7 +671,7 @@ namespace Configs {
 
     bool RouteProfile::add_simple_rule(const QString& content, const std::shared_ptr<RouteRule>& rule, ruleType type)
     {
-        if (type == simpleAddressProxy || type == simpleAddressBypass || type == simpleAddressBlock) return add_simple_address_rule(content, rule);
+        if (type == simpleAddressProxy || type == simpleAddressBypass || type == simpleAddressBlock || type == simpleAddressWarpBypass) return add_simple_address_rule(content, rule);
         else return add_simple_process_rule(content, rule);
     }
 
