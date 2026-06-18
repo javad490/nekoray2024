@@ -493,7 +493,7 @@ void MainWindow::speedtest_current_group(const QList<int>& profileIDs, bool test
         } else
         {
             dataViewHtmlGenerator_.seedSpeedTest(1);
-            runSpeedTest("", "", true, true, {}, {}, -1);
+            runSpeedTest("", "", false, true, {}, {}, -1);
             currentUnderTest.store(false);
         }
         dataViewHtmlGenerator_.clearTestSections();
