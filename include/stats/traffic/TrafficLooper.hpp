@@ -4,27 +4,51 @@
 #include <QList>
 #include <QMutex>
 
-#include "TrafficData.hpp"
+#include "include/database/entities/Profile.h"
+#include "include/configs/generate.h"
 
-namespace NekoGui_traffic {
+namespace Stats {
+    // Aggregate rate accumulator used for the status-bar / traffic-graph
+    // numbers (one for all proxied traffic combined, one for direct).
+    struct TrafficLooperEntry {
+        QString tag;
+        double downlink_rate = 0;
+        double uplink_rate = 0;
+    };
+
+    inline QString DisplaySpeed(const std::shared_ptr<TrafficLooperEntry> &entry) {
+        return UNICODE_LRO + QString("%1↑ %2↓").arg(ReadableSize(entry->uplink_rate), ReadableSize(entry->downlink_rate));
+    }
+
+    // Runtime view of a TrafficChainGroup: same watchTag + profile list, plus
+    // bookkeeping for delta-based rate computation.
+    struct TrafficLooperGroup {
+        QString watchTag;
+        QList<std::shared_ptr<Configs::Profile>> profiles;
+        long long last_update = 0;
+        double uplink_rate = 0;
+        double downlink_rate = 0;
+    };
+
     class TrafficLooper {
     public:
         bool loop_enabled = false;
         bool looping = false;
         QMutex loop_mutex;
 
-        QList<std::shared_ptr<TrafficData>> items;
-        TrafficData *proxy = nullptr;
+        std::shared_ptr<TrafficLooperEntry> proxy;
+        std::shared_ptr<TrafficLooperEntry> direct;
 
         void UpdateAll();
 
         void Loop();
 
-    private:
-        TrafficData *direct = new TrafficData("direct");
+        void SetChainGroups(const QList<Configs::TrafficChainGroup>& configGroups);
 
-        [[nodiscard]] static TrafficData *update_stats(TrafficData *item);
+    private:
+        QList<TrafficLooperGroup> groups;
+        long long direct_last_update = 0;
     };
 
     extern TrafficLooper *trafficLooper;
-} // namespace NekoGui_traffic
+} // namespace Stats

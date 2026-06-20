@@ -1,42 +1,38 @@
 #include "include/ui/profile/edit_shadowsocks.h"
 
-#include "include/configs/proxy/ShadowSocksBean.hpp"
-#include "include/configs/proxy/Preset.hpp"
-
 EditShadowSocks::EditShadowSocks(QWidget *parent) : QWidget(parent),
                                                     ui(new Ui::EditShadowSocks) {
     ui->setupUi(this);
-    ui->method->addItems(Preset::SingBox::ShadowsocksMethods);
+    ui->method->addItems(Configs::shadowsocksMethods);
 }
 
 EditShadowSocks::~EditShadowSocks() {
     delete ui;
 }
 
-void EditShadowSocks::onStart(std::shared_ptr<NekoGui::ProxyEntity> _ent) {
+void EditShadowSocks::onStart(std::shared_ptr<Configs::Profile> _ent) {
     this->ent = _ent;
-    auto bean = this->ent->ShadowSocksBean();
+    auto outbound = this->ent->ShadowSocks();
 
-    ui->method->setCurrentText(bean->method);
-    ui->uot->setCurrentIndex(bean->uot);
-    ui->password->setText(bean->password);
-    auto ssPlugin = bean->plugin.split(";");
-    if (!ssPlugin.empty()) {
-        ui->plugin->setCurrentText(ssPlugin[0]);
-        ui->plugin_opts->setText(SubStrAfter(bean->plugin, ";"));
+    if (outbound->plugin.contains(";")) {
+        outbound->plugin_opts = SubStrAfter(outbound->plugin, ";");
+        outbound->plugin = SubStrBefore(outbound->plugin, ";");
     }
+    ui->method->setCurrentText(outbound->method);
+    ui->uot->setChecked(outbound->uot);
+    ui->password->setText(outbound->password);
+    ui->plugin->setCurrentText(outbound->plugin);
+    ui->plugin_opts->setText(outbound->plugin_opts);
 }
 
 bool EditShadowSocks::onEnd() {
-    auto bean = this->ent->ShadowSocksBean();
+    auto outbound = this->ent->ShadowSocks();
 
-    bean->method = ui->method->currentText();
-    bean->password = ui->password->text();
-    bean->uot = ui->uot->currentIndex();
-    bean->plugin = ui->plugin->currentText();
-    if (!bean->plugin.isEmpty()) {
-        bean->plugin += ";" + ui->plugin_opts->text();
-    }
+    outbound->method = ui->method->currentText();
+    outbound->password = ui->password->text();
+    outbound->uot = ui->uot->isChecked();
+    outbound->plugin = ui->plugin->currentText();
+    outbound->plugin_opts = ui->plugin_opts->text();
 
     return true;
 }

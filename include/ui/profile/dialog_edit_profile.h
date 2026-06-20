@@ -1,12 +1,10 @@
-#ifndef DIALOG_EDIT_PROFILE_H
-#define DIALOG_EDIT_PROFILE_H
-
+#pragma once
 #include <QDialog>
-#include "include/dataStore/Database.hpp"
 #include "profile_editor.h"
 
 #include "include/ui/utils/FloatCheckBox.h"
 #include "ui_dialog_edit_profile.h"
+#include "include/database/entities/Profile.h"
 
 namespace Ui {
     class DialogEditProfile;
@@ -20,20 +18,17 @@ public:
 
     ~DialogEditProfile() override;
 
+    void toggleSingboxWidgets(bool show);
+
+    void toggleXrayWidgets(bool show);
+
 public slots:
 
     void accept() override;
 
 private slots:
-
-    void on_custom_outbound_edit_clicked();
-
-    void on_custom_config_edit_clicked();
-
     void on_certificate_edit_clicked();
-
-    void on_apply_to_group_clicked();
-
+    void on_xray_downloadsettings_edit_clicked();
 private:
     Ui::DialogEditProfile *ui;
 
@@ -45,23 +40,34 @@ private:
     QString type;
     int groupId;
     bool newEnt = false;
-    std::shared_ptr<NekoGui::ProxyEntity> ent;
+    std::shared_ptr<Configs::Profile> ent;
 
     QString network_title_base;
 
     struct {
-        QString custom_outbound;
-        QString custom_config;
-        QString certificate;
+        QStringList certificate;
+        QString XrayDownloadSettings;
     } CACHE;
 
     void typeSelected(const QString &newType);
 
+    void updateXrayCommons(QString network);
+
+    void setupXrayXHTTPControls();
+
+    void updateXrayXHTTPControls();
+
+    void setupXrayXHTTPDescriptions();
+
+    void setXrayXHTTPHelp(QWidget *caption, QWidget *field, const QString &text, const QString &jsonKey, const QString &description);
+
+    void queueRefreshDialogLayout();
+
+    bool validateHeaders();
+
+    bool validateXrayXHTTPSettings();
+
     bool onEnd();
 
     void editor_cache_updated_impl();
-
-    void do_apply_to_group(const std::shared_ptr<NekoGui::Group> &group, QWidget *key);
 };
-
-#endif // DIALOG_EDIT_PROFILE_H

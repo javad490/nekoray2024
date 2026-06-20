@@ -2,12 +2,12 @@
 
 #include <QPushButton>
 
-#include "include/dataStore/ProxyEntity.hpp"
+#include "include/database/entities/Profile.h"
 #include "include/global/GuiUtils.hpp"
 
 class ProfileEditor {
 public:
-    virtual void onStart(std::shared_ptr<NekoGui::ProxyEntity> ent) = 0;
+    virtual void onStart(std::shared_ptr<Configs::Profile> ent) = 0;
 
     virtual bool onEnd() = 0;
 
@@ -15,6 +15,8 @@ public:
     std::function<QString()> get_edit_text_name;
     std::function<QString()> get_edit_text_serverAddress;
     std::function<QString()> get_edit_text_serverPort;
+    std::function<void(const QString &)> set_edit_text_serverAddress;
+    std::function<void(const QString &)> set_edit_text_serverPort;
 
     // cached editor
 

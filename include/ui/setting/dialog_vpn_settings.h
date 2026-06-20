@@ -1,5 +1,4 @@
-#ifndef NEKORAY_DIALOG_VPN_SETTINGS_H
-#define NEKORAY_DIALOG_VPN_SETTINGS_H
+#pragma once
 
 #include <QDialog>
 #include "ui_dialog_vpn_settings.h"
@@ -25,7 +24,7 @@ public slots:
 
     void accept() override;
 
+    void on_restore_default_addresses_clicked();
+
     void on_troubleshooting_clicked();
 };
-
-#endif // NEKORAY_DIALOG_VPN_SETTINGS_H

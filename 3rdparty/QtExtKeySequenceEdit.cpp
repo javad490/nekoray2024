@@ -1,5 +1,7 @@
 #include "QtExtKeySequenceEdit.h"
 
+#include <QKeyEvent>
+
 QtExtKeySequenceEdit::QtExtKeySequenceEdit(QWidget *parent)
         : QKeySequenceEdit(parent) {
 }
@@ -14,9 +16,9 @@ void QtExtKeySequenceEdit::keyPressEvent(QKeyEvent *pEvent) {
     if (keySeq.count() <= 0) {
         return;
     }
-    int key = keySeq[0];
+    auto key = keySeq[0].key();
     if (key == Qt::Key_Backspace || key == Qt::Key_Delete) {
-        key = 0;
+        key = static_cast<Qt::Key>(0);
+        setKeySequence(key);
     }
-    setKeySequence(key);
 }

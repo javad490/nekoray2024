@@ -1,17 +1,38 @@
 #pragma once
 
-#include "include/dataStore/Database.hpp"
+#include <include/database/entities/Profile.h>
 
-namespace NekoGui_sub {
+namespace Subscription {
+    enum class SingBoxSubType {
+        fullConfig,
+        outboundInJson,
+        outboundJsonArray,
+        outboundObject,
+        invalid,
+    };
+    enum class XraySubType {
+        outboundInJson,
+        outboundJsonArray,
+        outboundObject,
+        invalid,
+    };
     class RawUpdater {
     public:
+        void update(const QString &str, bool needParse = true, bool isBase64Decoded = false);
+
+        void updateSingBox(const QJsonDocument &doc, SingBoxSubType type);
+
+        void updateXray(const QJsonDocument &doc, XraySubType type);
+
         void updateClash(const QString &str);
 
-        void update(const QString &str, bool needParse);
+        void updateWireguardFileConfig(const QString &str);
+
+        void updateSIP008(const QString &str);
 
         int gid_add_to = -1;
 
-        QList<std::shared_ptr<NekoGui::ProxyEntity>> updated_order;
+        QList<std::shared_ptr<Configs::Profile>> updated_order;
     };
 
     class GroupUpdater : public QObject {
@@ -28,6 +49,6 @@ namespace NekoGui_sub {
     };
 
     extern GroupUpdater *groupUpdater;
-} // namespace NekoGui_sub
+} // namespace Subscription
 
 void UI_update_all_groups(bool onlyAllowed = false);

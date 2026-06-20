@@ -1,62 +1,81 @@
-# NekoRay
+# Throne (Formerly Nekoray)
 
-Qt based Desktop cross-platform GUI proxy configuration manager (backend: sing-box)
+Qt based Desktop cross-platform GUI proxy utility, empowered by [Sing-box](https://github.com/SagerNet/sing-box)
 
-Supports Windows / Linux / MacOS out of the box now.
+Supports Windows 11/10/8/7 / Linux / MacOS out of the box.
 
-### Notes on the new versions on Windows
-The newest versions of Nekoray are built using the latest compilers and Qt releases, and so they need the latest `vc_redist` installed. If the app does not start and crashes, please make sure to update it.
-Also few anti-virus apps may identify the `nekobox_core.exe` as trojan, this is caused by the newely added code which can be used to alter the system DNS settings to hijack all dns requests to Nekoray to route them. Some apps may also 
-report `updater.exe` as trojan, this is also a false alarm caused by updater having to delete the old Nekoray files and replacing it with the new ones, which is like what many viruses do to replace your files with encrypted ones for ransoming purposes.
+<img width="1002" height="789" alt="image" src="https://github.com/user-attachments/assets/3c9bf428-e3bd-426b-8ca1-cc57ecbedd7e" />
 
-### How to run on Windows7
-Maintaining a windows7 build is no longer feasable, use [nekoray-win7](https://github.com/parhelia512/nekoray-win7) for windows7.
-
-### Compatiblity issues on Linux Distros
-Since every Distro of Linux has its own set of libraries, you might need to manually install some packages in order for nekoray to run.
-Currently known libraries that might be missing: `libxcb-cursor`. Please make sure to install them if nekoray did not start.
-
-### Using Tun mode in MacOS after 4.2.6
-To use Tun mode on MacOS, you will need to run `nekobox_core` as admin. Due to restrictive security of MacOS, all downloded apps will be quarantined which makes their content read-only. To fix this, after extracting the contents, you need to run `xattr -d com.apple.quarantine /path/to/nekoray.app` and then open the app and proceed to upgarde to admin by using Tun mode.
-
+### Note on MacOS releases
+Apple platforms have a very strict security policy and since Throne does not have a signed certificate, you will have to remove the quarantine using `xattr -d com.apple.quarantine /path/to/throne.app`. Also to get the built-in privilege escalation to work, `Terminal` should have the `Full Disk` access.
 
 ### GitHub Releases (Portable ZIP)
 
-[![GitHub All Releases](https://img.shields.io/github/downloads/Mahdi-zarei/nekoray/total?label=downloads-total&logo=github&style=flat-square)](https://github.com/Mahdi-zarei/nekoray/releases)
+[![GitHub All Releases](https://img.shields.io/github/downloads/Mahdi-zarei/nekoray/total?label=downloads-total&logo=github&style=flat-square)](https://github.com/throneproj/Throne/releases)
 
-## Proxy
+### RPM repository
+[Throne RPM repository](https://parhelia512.github.io/) for Fedora/RHEL and openSUSE/SLE.
 
-- SOCKS (4/4a/5)
+## Supported protocols
+
+- SOCKS
 - HTTP(S)
 - Shadowsocks
+- Trojan
 - VMess
 - VLESS
-- Trojan
-- TUIC ( sing-box )
-- NaïveProxy ( Custom Core )
-- Hysteria ( Custom Core or sing-box )
-- Hysteria2 ( Custom Core or sing-box )
-- Custom Outbound
-- Custom Config
-- Custom Core
+- TUIC
+- Hysteria
+- Hysteria2
+- AnyTLS
+- NaïveProxy
+- Juicity
+- TrustTunnel
+- ShadowTLS
+- Wireguard
+- AmneziaWG
+- SSH
+- Xray VLESS
+- Custom Outbound (Both Sing-box and Xray)
+- Custom Config (Both Sing-box and Xray)
+- Chaining outbounds
+- Extra Core
 
-## Subscription
+## Subscription Formats
 
-We support widely used link formats(like Shadowsocks and v2rayN) as well as custom
-outbound and custom configs. The subscription file can contain commented lines(starting with // or #, empty lines are ignored as well),
-JSON strings(can be human-readable or compact) and import links(each link should be on a separate line).
+Various formats are supported, including share links, various JSON representation of Sing-box configs, and v2rayN link format as well as limited support for Shadowsocks and Clash formats.
 
 ## Credits
 
-Core:
-
 - [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
-
-Gui:
-
+- [XTLS/Xray-core](https://github.com/xtls/xray-core)
 - [Qv2ray](https://github.com/Qv2ray/Qv2ray)
 - [Qt](https://www.qt.io/)
-- [protobuf](https://github.com/protocolbuffers/protobuf)
-- [yaml-cpp](https://github.com/jbeder/yaml-cpp)
-- [zxing-cpp](https://github.com/nu-book/zxing-cpp)
+- [simple-protobuf](https://github.com/tonda-kriz/simple-protobuf)
+- [fkYAML](https://github.com/fktn-k/fkYAML)
+- [quirc](https://github.com/dlbeer/quirc)
 - [QHotkey](https://github.com/Skycoder42/QHotkey)
+- [srombauts/sqlitecpp](https://github.com/srombauts/sqlitecpp)
+
+## FAQ
+**How does this project differ from the original Nekoray?** <br/>
+Nekoray's developer partially abandoned the project on December of 2023, some minor updates were done recently but the project is now officially archived. This project was meant to continue the way of the original project, with lots of improvements, tons of new features and also, removal of obsolete features and simplifications.
+
+**Why does my Anti-Virus detect Throne and/or its Core as malware?** <br/>
+Throne's built-in update functionallity downloads the new release, removes the old files and replaces them with the new ones, which is quite simliar to what malwares do, remove your files and replace them with an encrypted version of your files.
+Also the `System DNS` feature will change your system's DNS settings, which is also considered a dangerous action by some Anti-Virus applications.
+
+**Is setting the `SUID` bit really needed on Linux?** <br/>
+To create and manage a system TUN interface, root access is required, without it, you will have to grant the Core some `Cap_xxx_admin` and still, need to enter your password 3 to 4 times per TUN activation. You can also opt to disable the automatic privilege escalation in `Basic Settings`->`Security`, but note that features that require root access will stop working unless you manually grant the needed permissions.
+
+**Why does my internet stop working after I force quit Throne?** <br/>
+If Throne is force-quit while `System proxy` is enabled, the process ends immediately and Throne cannot reset the proxy. <br/>
+Solution:
+- Always close Throne normally.
+- If you force quit by accident, open Throne again, enable `System proxy`, then disable it- this will reset the settings.
+
+**Where are the downloadable route profiles/rulesets coming from?**<br/>
+They are located at the [routeprofiles](https://github.com/throneproj/routeprofiles) repository.
+
+**How does "Throne-\<version\>-debian-system-qt-x64.deb" differ from "Throne-\<version\>-debian-x64.deb" and why is the latter 3 times heavier then the former?**<br/>
+The first one does not pack the Qt libraries and relies on those installed on the host. The second one packs everything needed with itself, thus being heavier. The reason the first one exists is that on legacy systems provided Qt libraries use unsupported system features. If a graphical interface fails to load for your system, you may try to download the system-qt version and install fitting Qt libraries from your package manager or compile them from source.

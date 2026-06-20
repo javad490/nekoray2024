@@ -1,37 +1,20 @@
-#include "include/dataStore/ProfileFilter.hpp"
-#include "include/configs/proxy/includes.h"
+#include "include/database/entities/Profile.h"
 #include "include/global/HTTPRequestHelper.hpp"
 
 #include "include/configs/sub/GroupUpdater.hpp"
+#include "include/configs/sub/clash.hpp"
 
 #include <QInputDialog>
 #include <QUrlQuery>
+#include <QJsonDocument>
 
-#ifndef NKR_NO_YAML
+#include "include/configs/common/utils.h"
+#include "include/database/GroupsRepo.h"
+#include "include/database/ProfilesRepo.h"
 
-#include <yaml-cpp/yaml.h>
-
-#endif
-
-namespace NekoGui_sub {
+namespace Subscription {
 
     GroupUpdater *groupUpdater = new GroupUpdater;
-
-    void RawUpdater_FixEnt(const std::shared_ptr<NekoGui::ProxyEntity> &ent) {
-        if (ent == nullptr) return;
-        auto stream = NekoGui_fmt::GetStreamSettings(ent->bean.get());
-        if (stream == nullptr) return;
-        // 1. "security"
-        if (stream->security == "none" || stream->security == "0" || stream->security == "false") {
-            stream->security = "";
-        } else if (stream->security == "1" || stream->security == "true") {
-            stream->security = "tls";
-        }
-        // 2. TLS SNI: v2rayN config builder generate sni like this, so set sni here for their format.
-        if (stream->security == "tls" && IsIpAddress(ent->bean->serverAddress) && (!stream->host.isEmpty()) && stream->sni.isEmpty()) {
-            stream->sni = stream->host;
-        }
-    }
 
     int JsonEndIdx(const QString &str, int begin) {
         int sz = str.length();
@@ -68,19 +51,167 @@ namespace NekoGui_sub {
         return res;
     }
 
-    void RawUpdater::update(const QString &str, bool needParse = true) {
+    SingBoxSubType getSingBoxSubType(const QJsonDocument &doc) {
+        if (doc.isObject()) {
+            auto obj = doc.object();
+            bool hasInbound = obj.contains("inbounds");
+            bool hasOutbound = obj.contains("outbounds") || obj.contains("endpoints");
+            // if (hasInbound && hasOutbound) return SingBoxSubType::fullConfig;
+            if (hasOutbound) return SingBoxSubType::outboundInJson;
+            if (obj.contains("type")) return SingBoxSubType::outboundObject;
+            return SingBoxSubType::invalid;
+        }
+        if (doc.isArray() && !doc.array().empty()) {
+            auto arr = doc.array();
+            auto firstRaw = arr.first();
+            if (firstRaw.isObject()) {
+                auto obj = firstRaw.toObject();
+                if (obj.contains("type")) return SingBoxSubType::outboundJsonArray;
+            }
+            return SingBoxSubType::invalid;
+        }
+        return SingBoxSubType::invalid;
+    }
+
+    // Xray uses "protocol" instead of sing-box's "type" field on outbounds, so
+    // we can disambiguate by inspecting individual outbound objects rather than
+    // the wrapper.
+    XraySubType getXraySubType(const QJsonDocument &doc) {
+        if (doc.isObject()) {
+            auto obj = doc.object();
+            if (obj.contains("outbounds")) {
+                for (const auto &item : obj["outbounds"].toArray()) {
+                    if (item.isObject() && item.toObject().contains("protocol")) {
+                        return XraySubType::outboundInJson;
+                    }
+                }
+            }
+            if (obj.contains("protocol")) return XraySubType::outboundObject;
+            return XraySubType::invalid;
+        }
+        if (doc.isArray() && !doc.array().empty()) {
+            auto first = doc.array().first();
+            if (first.isObject() && first.toObject().contains("protocol")) {
+                return XraySubType::outboundJsonArray;
+            }
+        }
+        return XraySubType::invalid;
+    }
+
+    // Convert a real Xray VLESS outbound (settings.vnext[0].address etc.) into
+    // the simplified shape Throne's xrayVless::ParseFromJson expects. Returns
+    // an empty object if the input doesn't have the expected structure.
+    QJsonObject normalizeXrayVlessForParse(const QJsonObject &out) {
+        if (out["protocol"].toString() != "vless") return {};
+        auto settings = out["settings"].toObject();
+        // Already in simplified form.
+        if (settings.contains("address") && !settings.contains("vnext")) return out;
+        auto vnext = settings["vnext"].toArray();
+        if (vnext.isEmpty()) return {};
+        auto first = vnext.first().toObject();
+        if (first.isEmpty()) return {};
+        auto users = first["users"].toArray();
+        if (users.isEmpty()) return {};
+        auto user = users.first().toObject();
+        QJsonObject simpleSettings;
+        simpleSettings["address"] = first["address"];
+        simpleSettings["port"] = first["port"];
+        simpleSettings["id"] = user["id"];
+        simpleSettings["encryption"] = user.contains("encryption") ? user["encryption"] : QJsonValue("none");
+        simpleSettings["flow"] = user["flow"];
+        QJsonObject normalized = out;
+        normalized["settings"] = simpleSettings;
+        return normalized;
+    }
+
+    std::shared_ptr<Configs::Profile> makeProfileForXrayOutbound(const QJsonObject &out) {
+        if (out.isEmpty()) return nullptr;
+        auto protocol = out["protocol"].toString();
+        // System protocols don't make sense as user profiles.
+        if (protocol == "freedom" || protocol == "blackhole" || protocol == "dns" || protocol == "loopback") {
+            return nullptr;
+        }
+        std::shared_ptr<Configs::Profile> ent;
+        if (protocol == "vless") {
+            if (auto normalized = normalizeXrayVlessForParse(out); !normalized.isEmpty()) {
+                ent = Configs::ProfilesRepo::NewProfile("xrayvless");
+                if (ent->XrayVLESS()->ParseFromJson(normalized)) return ent;
+            }
+        }
+        ent = Configs::ProfilesRepo::NewProfile("custom");
+        ent->Custom()->type = Configs::Custom::CustomXrayOutbound;
+        ent->Custom()->config = QJsonObject2QString(out, false);
+        if (auto tag = out["tag"].toString(); !tag.isEmpty()) ent->Custom()->name = tag;
+        return ent;
+    }
+
+    void RawUpdater::update(const QString &str, bool needParse, bool isBase64Decoded) {
         // Base64 encoded subscription
-        if (auto str2 = DecodeB64IfValid(str); !str2.isEmpty()) {
-            update(str2);
+        if (!isBase64Decoded) {
+            if (auto str2 = DecodeB64IfValid(str); !str2.isEmpty()) {
+                update(str2, true, true);
+                return;
+            }
+        }
+
+        std::shared_ptr<Configs::Profile> ent;
+
+        // Json
+        QJsonParseError error;
+        auto doc = QJsonDocument::fromJson(str.toUtf8(), &error);
+        if (error.error == QJsonParseError::NoError) {
+            // Xray (checked first since its outbounds are tagged with
+            // "protocol", which lets us cleanly disambiguate from sing-box
+            // configs that share the "outbounds" wrapper).
+            auto xrayType = getXraySubType(doc);
+            if (xrayType == XraySubType::outboundObject) {
+                if (auto e = makeProfileForXrayOutbound(doc.object()); e != nullptr) {
+                    updated_order += e;
+                }
+                return;
+            }
+            if (xrayType == XraySubType::outboundInJson || xrayType == XraySubType::outboundJsonArray) {
+                updateXray(doc, xrayType);
+                return;
+            }
+
+            // SingBox
+            auto subType = getSingBoxSubType(doc);
+            if (subType == SingBoxSubType::fullConfig) {
+                ent = Configs::ProfilesRepo::NewProfile("custom");
+                ent->Custom()->type = Configs::Custom::CustomFullConfig;
+                ent->Custom()->config = str;
+                updated_order += ent;
+            } else if (subType == SingBoxSubType::outboundObject) {
+                ent = Configs::ProfilesRepo::NewProfile("custom");
+                ent->Custom()->type = Configs::Custom::CustomOutbound;
+                ent->Custom()->config = str;
+                updated_order += ent;
+            } else if (subType == SingBoxSubType::outboundInJson || subType == SingBoxSubType::outboundJsonArray) {
+                updateSingBox(doc, subType);
+                return;
+            }
+
+            // SIP008
+            if (str.contains("version") && str.contains("servers"))
+            {
+                updateSIP008(str);
+                return;
+            }
+
             return;
         }
 
         // Clash
         if (str.contains("proxies:")) {
-            runOnUiThread([=] {
-               MessageBoxWarning("Deprecated", "Clash Meta format is deprecated and will no longer be updated.");
-            });
             updateClash(str);
+            return;
+        }
+
+        // Wireguard Config
+        if (str.contains("[Interface]") && str.contains("[Peer]"))
+        {
+            updateWireguardFileConfig(str);
             return;
         }
 
@@ -98,32 +229,34 @@ namespace NekoGui_sub {
             return;
         }
 
-        std::shared_ptr<NekoGui::ProxyEntity> ent;
-        bool needFix = true;
-
-        // Nekoray format
-        if (str.startsWith("nekoray://")) {
-            needFix = false;
+        // Json base64 link format
+        if (str.startsWith("json://")) {
             auto link = QUrl(str);
             if (!link.isValid()) return;
-            ent = NekoGui::ProfileManager::NewProxyEntity(link.host());
-            if (ent->bean->version == -114514) return;
-            auto j = DecodeB64IfValid(link.fragment().toUtf8(), QByteArray::Base64UrlEncoding);
-            if (j.isEmpty()) return;
-            ent->bean->FromJsonBytes(j);
+            auto dataBytes = DecodeB64IfValid(link.fragment().toUtf8(), QByteArray::Base64UrlEncoding);
+            if (dataBytes.isEmpty()) return;
+            auto data = QJsonDocument::fromJson(dataBytes).object();
+            if (data.isEmpty()) return;
+            if (data.contains("protocol")) {
+                ent = Configs::ProfilesRepo::NewProfile("xray" + data["protocol"].toString());
+            } else {
+                ent = data["type"].toString() == "hysteria2" ? Configs::ProfilesRepo::NewProfile("hysteria") : Configs::ProfilesRepo::NewProfile(data["type"].toString());
+            }
+            if (ent->outbound->invalid) return;
+            ent->outbound->ParseFromJson(data);
         }
 
         // Json
         if (str.startsWith('{')) {
-            ent = NekoGui::ProfileManager::NewProxyEntity("custom");
-            auto bean = ent->CustomBean();
+            ent = Configs::ProfilesRepo::NewProfile("custom");
+            auto custom = ent->Custom();
             auto obj = QString2QJsonObject(str);
             if (obj.contains("outbounds")) {
-                bean->core = "internal-full";
-                bean->config_simple = str;
+                custom->type = Configs::Custom::CustomFullConfig;
+                custom->config = str;
             } else if (obj.contains("server")) {
-                bean->core = "internal";
-                bean->config_simple = str;
+                custom->type = Configs::Custom::CustomOutbound;
+                custom->config = str;
             } else {
                 return;
             }
@@ -132,433 +265,408 @@ namespace NekoGui_sub {
         // SOCKS
         if (str.startsWith("socks5://") || str.startsWith("socks4://") ||
             str.startsWith("socks4a://") || str.startsWith("socks://")) {
-            ent = NekoGui::ProfileManager::NewProxyEntity("socks");
-            auto ok = ent->SocksHTTPBean()->TryParseLink(str);
+            ent = Configs::ProfilesRepo::NewProfile("socks");
+            auto ok = ent->Socks()->ParseFromLink(str);
             if (!ok) return;
         }
 
         // HTTP
         if (str.startsWith("http://") || str.startsWith("https://")) {
-            ent = NekoGui::ProfileManager::NewProxyEntity("http");
-            auto ok = ent->SocksHTTPBean()->TryParseLink(str);
+            ent = Configs::ProfilesRepo::NewProfile("http");
+            auto ok = ent->Http()->ParseFromLink(str);
             if (!ok) return;
         }
 
         // ShadowSocks
         if (str.startsWith("ss://")) {
-            ent = NekoGui::ProfileManager::NewProxyEntity("shadowsocks");
-            auto ok = ent->ShadowSocksBean()->TryParseLink(str);
+            ent = Configs::ProfilesRepo::NewProfile("shadowsocks");
+            auto ok = ent->ShadowSocks()->ParseFromLink(str);
             if (!ok) return;
         }
 
         // VMess
         if (str.startsWith("vmess://")) {
-            ent = NekoGui::ProfileManager::NewProxyEntity("vmess");
-            auto ok = ent->VMessBean()->TryParseLink(str);
+            ent = Configs::ProfilesRepo::NewProfile("vmess");
+            auto ok = ent->VMess()->ParseFromLink(str);
             if (!ok) return;
         }
 
         // VLESS
         if (str.startsWith("vless://")) {
-            ent = NekoGui::ProfileManager::NewProxyEntity("vless");
-            auto ok = ent->TrojanVLESSBean()->TryParseLink(str);
-            if (!ok) return;
+            if (Configs::useXrayVless(str)) {
+                ent = Configs::ProfilesRepo::NewProfile("xrayvless");
+                auto ok = ent->XrayVLESS()->ParseFromLink(str);
+                if (!ok) return;
+            } else {
+                ent = Configs::ProfilesRepo::NewProfile("vless");
+                auto ok = ent->VLESS()->ParseFromLink(str);
+                if (!ok) return;
+            }
         }
 
         // Trojan
         if (str.startsWith("trojan://")) {
-            ent = NekoGui::ProfileManager::NewProxyEntity("trojan");
-            auto ok = ent->TrojanVLESSBean()->TryParseLink(str);
+            ent = Configs::ProfilesRepo::NewProfile("trojan");
+            auto ok = ent->Trojan()->ParseFromLink(str);
             if (!ok) return;
         }
 
-        // Hysteria1
-        if (str.startsWith("hysteria://")) {
-            needFix = false;
-            ent = NekoGui::ProfileManager::NewProxyEntity("hysteria");
-            auto ok = ent->QUICBean()->TryParseLink(str);
+        // AnyTLS
+        if (str.startsWith("anytls://")) {
+            ent = Configs::ProfilesRepo::NewProfile("anytls");
+            auto ok = ent->AnyTLS()->ParseFromLink(str);
             if (!ok) return;
         }
 
-        // Hysteria2
-        if (str.startsWith("hysteria2://") || str.startsWith("hy2://")) {
-            needFix = false;
-            ent = NekoGui::ProfileManager::NewProxyEntity("hysteria2");
-            auto ok = ent->QUICBean()->TryParseLink(str);
+        // Hysteria
+        if (str.startsWith("hysteria://") || str.startsWith("hysteria2://") || str.startsWith("hy2://")) {
+            ent = Configs::ProfilesRepo::NewProfile("hysteria");
+            auto ok = ent->Hysteria()->ParseFromLink(str);
             if (!ok) return;
         }
 
         // TUIC
         if (str.startsWith("tuic://")) {
-            needFix = false;
-            ent = NekoGui::ProfileManager::NewProxyEntity("tuic");
-            auto ok = ent->QUICBean()->TryParseLink(str);
+            ent = Configs::ProfilesRepo::NewProfile("tuic");
+            auto ok = ent->TUIC()->ParseFromLink(str);
+            if (!ok) return;
+        }
+
+        // Juicity
+        if (str.startsWith("juicity://")) {
+            ent = Configs::ProfilesRepo::NewProfile("juicity");
+            auto ok = ent->Juicity()->ParseFromLink(str);
+            if (!ok) return;
+        }
+
+        // TrustTunnel
+        if (str.startsWith("tt://")) {
+            ent = Configs::ProfilesRepo::NewProfile("trusttunnel");
+            auto ok = ent->TrustTunnel()->ParseFromLink(str);
+            if (!ok) return;
+        }
+
+        // ShadowTLS
+        if (str.startsWith("shadowtls://")) {
+            ent = Configs::ProfilesRepo::NewProfile("shadowtls");
+            auto ok = ent->ShadowTLS()->ParseFromLink(str);
             if (!ok) return;
         }
 
         // Wireguard
         if (str.startsWith("wg://")) {
-            needFix = false;
-            ent = NekoGui::ProfileManager::NewProxyEntity("wireguard");
-            auto ok = ent->WireguardBean()->TryParseLink(str);
+            ent = Configs::ProfilesRepo::NewProfile("wireguard");
+            auto ok = ent->Wireguard()->ParseFromLink(str);
             if (!ok) return;
         }
 
         // SSH
         if (str.startsWith("ssh://")) {
-            needFix = false;
-            ent = NekoGui::ProfileManager::NewProxyEntity("ssh");
-            auto ok = ent->SSHBean()->TryParseLink(str);
+            ent = Configs::ProfilesRepo::NewProfile("ssh");
+            auto ok = ent->SSH()->ParseFromLink(str);
+            if (!ok) return;
+        }
+
+        // Naive
+        if (str.startsWith("naive+https://") || str.startsWith("naive+quic://")) {
+            ent = Configs::ProfilesRepo::NewProfile("naive");
+            auto ok = ent->Naive()->ParseFromLink(str);
             if (!ok) return;
         }
 
         if (ent == nullptr) return;
 
-        // Fix
-        if (needFix) RawUpdater_FixEnt(ent);
-
         // End
-        NekoGui::profileManager->AddProfile(ent, gid_add_to);
         updated_order += ent;
     }
 
-#ifndef NKR_NO_YAML
+    void RawUpdater::updateSingBox(const QJsonDocument &doc, SingBoxSubType type)
+    {
+        QJsonArray outbounds, endpoints;
+        if (type == SingBoxSubType::outboundInJson) {
+            auto json = doc.object();
+            outbounds = json["outbounds"].toArray();
+            endpoints = json["endpoints"].toArray();
+        } else if (type == SingBoxSubType::outboundJsonArray) {
+            outbounds = doc.array();
+        } else {
+            return;
+        }
+        QJsonArray items;
+        for (const auto& outbound : outbounds)
+        {
+            if (!outbound.isObject()) continue;
+            items.append(outbound.toObject());
+        }
+        for (const auto& endpoint : endpoints)
+        {
+            if (!endpoint.isObject()) continue;
+            items.append(endpoint.toObject());
+        }
 
-    QString Node2QString(const YAML::Node &n, const QString &def = "") {
-        try {
-            return n.as<std::string>().c_str();
-        } catch (const YAML::Exception &ex) {
-            qDebug() << ex.what();
-            return def;
+        for (const auto& o : items)
+        {
+            auto out = o.toObject();
+            if (out.isEmpty())
+            {
+                MW_show_log("invalid outbound of type: " + o.type());
+                continue;
+            }
+
+            std::shared_ptr<Configs::Profile> ent;
+
+            // SOCKS
+            if (out["type"] == "socks") {
+                ent = Configs::ProfilesRepo::NewProfile("socks");
+                auto ok = ent->Socks()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // HTTP
+            if (out["type"] == "http") {
+                ent = Configs::ProfilesRepo::NewProfile("http");
+                auto ok = ent->Http()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // ShadowSocks
+            if (out["type"] == "shadowsocks") {
+                ent = Configs::ProfilesRepo::NewProfile("shadowsocks");
+                auto ok = ent->ShadowSocks()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // VMess
+            if (out["type"] == "vmess") {
+                ent = Configs::ProfilesRepo::NewProfile("vmess");
+                auto ok = ent->VMess()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // VLESS
+            if (out["type"] == "vless") {
+                ent = Configs::ProfilesRepo::NewProfile("vless");
+                auto ok = ent->VLESS()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // Trojan
+            if (out["type"] == "trojan") {
+                ent = Configs::ProfilesRepo::NewProfile("trojan");
+                auto ok = ent->Trojan()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // AnyTLS
+            if (out["type"] == "anytls") {
+                ent = Configs::ProfilesRepo::NewProfile("anytls");
+                auto ok = ent->AnyTLS()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // Hysteria
+            if (out["type"] == "hysteria" || out["type"] == "hysteria2") {
+                ent = Configs::ProfilesRepo::NewProfile("hysteria");
+                auto ok = ent->Hysteria()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // TUIC
+            if (out["type"] == "tuic") {
+                ent = Configs::ProfilesRepo::NewProfile("tuic");
+                auto ok = ent->TUIC()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // Juicity
+            if (out["type"] == "juicity") {
+                ent = Configs::ProfilesRepo::NewProfile("juicity");
+                auto ok = ent->Juicity()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // TrustTunnel
+            if (out["type"] == "trusttunnel") {
+                ent = Configs::ProfilesRepo::NewProfile("trusttunnel");
+                auto ok = ent->TrustTunnel()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // ShadowTLS
+            if (out["type"] == "shadowtls") {
+                ent = Configs::ProfilesRepo::NewProfile("shadowtls");
+                auto ok = ent->ShadowTLS()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // Wireguard
+            if (out["type"] == "wireguard") {
+                ent = Configs::ProfilesRepo::NewProfile("wireguard");
+                auto ok = ent->Wireguard()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // SSH
+            if (out["type"] == "ssh") {
+                ent = Configs::ProfilesRepo::NewProfile("ssh");
+                auto ok = ent->SSH()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            // Naive
+            if (out["type"] == "naive") {
+                ent = Configs::ProfilesRepo::NewProfile("naive");
+                auto ok = ent->Naive()->ParseFromJson(out);
+                if (!ok) continue;
+            }
+
+            if (ent == nullptr) continue;
+
+            updated_order += ent;
         }
     }
 
-    QStringList Node2QStringList(const YAML::Node &n) {
+    void RawUpdater::updateXray(const QJsonDocument &doc, XraySubType type)
+    {
+        QJsonArray outbounds;
+        if (type == XraySubType::outboundInJson) {
+            outbounds = doc.object()["outbounds"].toArray();
+        } else if (type == XraySubType::outboundJsonArray) {
+            outbounds = doc.array();
+        } else {
+            return;
+        }
+        for (const auto &o : outbounds) {
+            if (!o.isObject()) continue;
+            if (auto e = makeProfileForXrayOutbound(o.toObject()); e != nullptr) {
+                updated_order += e;
+            }
+        }
+    }
+
+    void RawUpdater::updateClash(const QString& str)
+    {
         try {
-            if (n.IsSequence()) {
-                QStringList list;
-                for (auto item: n) {
-                    list << item.as<std::string>().c_str();
+            fkyaml::node node = fkyaml::node::deserialize(str.toStdString());
+            clash::Clash clash_config = node.get_value<clash::Clash>();
+    
+            for (const auto& out : clash_config.proxies)
+            {
+                std::shared_ptr<Configs::Profile> ent;
+    
+                // SOCKS
+                if (out.type == "socks5") {
+                    ent = Configs::ProfilesRepo::NewProfile("socks");
+                    auto ok = ent->Socks()->ParseFromClash(out);
+                    if (!ok) continue;
                 }
-                return list;
-            } else {
-                return {};
-            }
-        } catch (const YAML::Exception &ex) {
-            qDebug() << ex.what();
-            return {};
-        }
-    }
-
-    int Node2Int(const YAML::Node &n, const int &def = 0) {
-        try {
-            return n.as<int>();
-        } catch (const YAML::Exception &ex) {
-            qDebug() << ex.what();
-            return def;
-        }
-    }
-
-    bool Node2Bool(const YAML::Node &n, const bool &def = false) {
-        try {
-            return n.as<bool>();
-        } catch (const YAML::Exception &ex) {
-            try {
-                return n.as<int>();
-            } catch (const YAML::Exception &ex2) {
-                ex2.what();
-            }
-            qDebug() << ex.what();
-            return def;
-        }
-    }
-
-    // NodeChild returns the first defined children or Null Node
-    YAML::Node NodeChild(const YAML::Node &n, const std::list<std::string> &keys) {
-        for (const auto &key: keys) {
-            auto child = n[key];
-            if (child.IsDefined()) return child;
-        }
-        return {};
-    }
-
-#endif
-
-    // https://github.com/Dreamacro/clash/wiki/configuration
-    void RawUpdater::updateClash(const QString &str) {
-#ifndef NKR_NO_YAML
-        try {
-            auto proxies = YAML::Load(str.toStdString())["proxies"];
-            for (auto proxy: proxies) {
-                auto type = Node2QString(proxy["type"]).toLower();
-                auto type_clash = type;
-
-                if (type == "ss" || type == "ssr") type = "shadowsocks";
-                if (type == "socks5") type = "socks";
-
-                auto ent = NekoGui::ProfileManager::NewProxyEntity(type);
-                if (ent->bean->version == -114514) continue;
-                bool needFix = false;
-
-                // common
-                ent->bean->name = Node2QString(proxy["name"]);
-                ent->bean->serverAddress = Node2QString(proxy["server"]);
-                ent->bean->serverPort = Node2Int(proxy["port"]);
-
-                if (type_clash == "ss") {
-                    auto bean = ent->ShadowSocksBean();
-                    bean->method = Node2QString(proxy["cipher"]).replace("dummy", "none");
-                    bean->password = Node2QString(proxy["password"]);
-                    auto plugin_n = proxy["plugin"];
-                    auto pluginOpts_n = proxy["plugin-opts"];
-
-                    // UDP over TCP
-                    if (Node2Bool(proxy["udp-over-tcp"])) {
-                        bean->uot = Node2Int(proxy["udp-over-tcp-version"]);
-                        if (bean->uot == 0) bean->uot = 2;
-                    }
-
-                    if (plugin_n.IsDefined() && pluginOpts_n.IsDefined()) {
-                        QStringList ssPlugin;
-                        auto plugin = Node2QString(plugin_n);
-                        if (plugin == "obfs") {
-                            ssPlugin << "obfs-local";
-                            ssPlugin << "obfs=" + Node2QString(pluginOpts_n["mode"]);
-                            ssPlugin << "obfs-host=" + Node2QString(pluginOpts_n["host"]);
-                        } else if (plugin == "v2ray-plugin") {
-                            auto mode = Node2QString(pluginOpts_n["mode"]);
-                            auto host = Node2QString(pluginOpts_n["host"]);
-                            auto path = Node2QString(pluginOpts_n["path"]);
-                            ssPlugin << "v2ray-plugin";
-                            if (!mode.isEmpty() && mode != "websocket") ssPlugin << "mode=" + mode;
-                            if (Node2Bool(pluginOpts_n["tls"])) ssPlugin << "tls";
-                            if (!host.isEmpty()) ssPlugin << "host=" + host;
-                            if (!path.isEmpty()) ssPlugin << "path=" + path;
-                            // clash only: skip-cert-verify
-                            // clash only: headers
-                            // clash: mux=?
-                        }
-                        bean->plugin = ssPlugin.join(";");
-                    }
-
-                    // sing-mux
-                    auto smux = NodeChild(proxy, {"smux"});
-                    if (Node2Bool(smux["enabled"])) bean->mux_state = 1;
-                } else if (type == "socks" || type == "http") {
-                    auto bean = ent->SocksHTTPBean();
-                    bean->username = Node2QString(proxy["username"]);
-                    bean->password = Node2QString(proxy["password"]);
-                    if (Node2Bool(proxy["tls"])) bean->stream->security = "tls";
-                    if (Node2Bool(proxy["skip-cert-verify"])) bean->stream->allow_insecure = true;
-                } else if (type == "trojan" || type == "vless") {
-                    needFix = true;
-                    auto bean = ent->TrojanVLESSBean();
-                    if (type == "vless") {
-                        bean->flow = Node2QString(proxy["flow"]);
-                        bean->password = Node2QString(proxy["uuid"]);
-                        // meta packet encoding
-                        if (Node2Bool(proxy["packet-addr"])) {
-                            bean->stream->packet_encoding = "packetaddr";
-                        } else {
-                            // For VLESS, default to use xudp
-                            bean->stream->packet_encoding = "xudp";
-                        }
+    
+                // HTTP
+                if (out.type == "http") {
+                    ent = Configs::ProfilesRepo::NewProfile("http");
+                    auto ok = ent->Http()->ParseFromClash(out);
+                    if (!ok) continue;
+                }
+    
+                // ShadowSocks
+                if (out.type == "ss") {
+                    ent = Configs::ProfilesRepo::NewProfile("shadowsocks");
+                    auto ok = ent->ShadowSocks()->ParseFromClash(out);
+                    if (!ok) continue;
+                }
+    
+                // VMess
+                if (out.type == "vmess") {
+                    ent = Configs::ProfilesRepo::NewProfile("vmess");
+                    auto ok = ent->VMess()->ParseFromClash(out);
+                    if (!ok) continue;
+                }
+    
+                // VLESS
+                if (out.type == "vless") {
+                    if (out.network == "xhttp" || (!out.encryption.empty() && out.encryption != "none")) {
+                        ent = Configs::ProfilesRepo::NewProfile("xrayvless");
+                        auto ok = ent->XrayVLESS()->ParseFromClash(out);
+                        if (!ok) continue;
                     } else {
-                        bean->password = Node2QString(proxy["password"]);
+                        ent = Configs::ProfilesRepo::NewProfile("vless");
+                        auto ok = ent->VLESS()->ParseFromClash(out);
+                        if (!ok) continue;
                     }
-                    bean->stream->security = "tls";
-                    bean->stream->network = Node2QString(proxy["network"], "tcp");
-                    bean->stream->sni = FIRST_OR_SECOND(Node2QString(proxy["sni"]), Node2QString(proxy["servername"]));
-                    bean->stream->alpn = Node2QStringList(proxy["alpn"]).join(",");
-                    bean->stream->allow_insecure = Node2Bool(proxy["skip-cert-verify"]);
-                    bean->stream->utlsFingerprint = Node2QString(proxy["client-fingerprint"]);
-                    if (bean->stream->utlsFingerprint.isEmpty()) {
-                        bean->stream->utlsFingerprint = NekoGui::dataStore->utlsFingerprint;
-                    }
-
-                    // sing-mux
-                    auto smux = NodeChild(proxy, {"smux"});
-                    if (Node2Bool(smux["enabled"])) bean->mux_state = 1;
-
-                    // opts
-                    auto ws = NodeChild(proxy, {"ws-opts", "ws-opt"});
-                    if (ws.IsMap()) {
-                        auto headers = ws["headers"];
-                        for (auto header: headers) {
-                            if (Node2QString(header.first).toLower() == "host") {
-                                bean->stream->host = Node2QString(header.second);
-                            }
-                        }
-                        bean->stream->path = Node2QString(ws["path"]);
-                        bean->stream->ws_early_data_length = Node2Int(ws["max-early-data"]);
-                        bean->stream->ws_early_data_name = Node2QString(ws["early-data-header-name"]);
-                    }
-
-                    auto grpc = NodeChild(proxy, {"grpc-opts", "grpc-opt"});
-                    if (grpc.IsMap()) {
-                        bean->stream->path = Node2QString(grpc["grpc-service-name"]);
-                    }
-
-                    auto reality = NodeChild(proxy, {"reality-opts"});
-                    if (reality.IsMap()) {
-                        bean->stream->reality_pbk = Node2QString(reality["public-key"]);
-                        bean->stream->reality_sid = Node2QString(reality["short-id"]);
-                    }
-                } else if (type == "vmess") {
-                    needFix = true;
-                    auto bean = ent->VMessBean();
-                    bean->uuid = Node2QString(proxy["uuid"]);
-                    bean->aid = Node2Int(proxy["alterId"]);
-                    bean->security = Node2QString(proxy["cipher"], bean->security);
-                    bean->stream->network = Node2QString(proxy["network"], "tcp").replace("h2", "http");
-                    bean->stream->sni = FIRST_OR_SECOND(Node2QString(proxy["sni"]), Node2QString(proxy["servername"]));
-                    bean->stream->alpn = Node2QStringList(proxy["alpn"]).join(",");
-                    if (Node2Bool(proxy["tls"])) bean->stream->security = "tls";
-                    if (Node2Bool(proxy["skip-cert-verify"])) bean->stream->allow_insecure = true;
-                    bean->stream->utlsFingerprint = Node2QString(proxy["client-fingerprint"]);
-                    bean->stream->utlsFingerprint = Node2QString(proxy["client-fingerprint"]);
-                    if (bean->stream->utlsFingerprint.isEmpty()) {
-                        bean->stream->utlsFingerprint = NekoGui::dataStore->utlsFingerprint;
-                    }
-
-                    // sing-mux
-                    auto smux = NodeChild(proxy, {"smux"});
-                    if (Node2Bool(smux["enabled"])) bean->mux_state = 1;
-
-                    // meta packet encoding
-                    if (Node2Bool(proxy["xudp"])) bean->stream->packet_encoding = "xudp";
-                    if (Node2Bool(proxy["packet-addr"])) bean->stream->packet_encoding = "packetaddr";
-
-                    // opts
-                    auto ws = NodeChild(proxy, {"ws-opts", "ws-opt"});
-                    if (ws.IsMap()) {
-                        auto headers = ws["headers"];
-                        for (auto header: headers) {
-                            if (Node2QString(header.first).toLower() == "host") {
-                                bean->stream->host = Node2QString(header.second);
-                            }
-                        }
-                        bean->stream->path = Node2QString(ws["path"]);
-                        bean->stream->ws_early_data_length = Node2Int(ws["max-early-data"]);
-                        bean->stream->ws_early_data_name = Node2QString(ws["early-data-header-name"]);
-                        // for Xray
-                        if (Node2QString(ws["early-data-header-name"]) == "Sec-WebSocket-Protocol") {
-                            bean->stream->path += "?ed=" + Node2QString(ws["max-early-data"]);
-                        }
-                    }
-
-                    auto grpc = NodeChild(proxy, {"grpc-opts", "grpc-opt"});
-                    if (grpc.IsMap()) {
-                        bean->stream->path = Node2QString(grpc["grpc-service-name"]);
-                    }
-
-                    auto h2 = NodeChild(proxy, {"h2-opts", "h2-opt"});
-                    if (h2.IsMap()) {
-                        auto hosts = h2["host"];
-                        for (auto host: hosts) {
-                            bean->stream->host = Node2QString(host);
-                            break;
-                        }
-                        bean->stream->path = Node2QString(h2["path"]);
-                    }
-                    auto tcp_http = NodeChild(proxy, {"http-opts", "http-opt"});
-                    if (tcp_http.IsMap()) {
-                        bean->stream->network = "tcp";
-                        bean->stream->header_type = "http";
-                        auto headers = tcp_http["headers"];
-                        for (auto header: headers) {
-                            if (Node2QString(header.first).toLower() == "host") {
-                                bean->stream->host = Node2QString(header.second[0]);
-                            }
-                            break;
-                        }
-                        auto paths = tcp_http["path"];
-                        for (auto path: paths) {
-                            bean->stream->path = Node2QString(path);
-                            break;
-                        }
-                    }
-                } else if (type == "hysteria") {
-                    auto bean = ent->QUICBean();
-
-                    bean->allowInsecure = Node2Bool(proxy["skip-cert-verify"]);
-                    auto alpn = Node2QStringList(proxy["alpn"]);
-                    bean->caText = Node2QString(proxy["ca-str"]);
-                    if (!alpn.isEmpty()) bean->alpn = alpn[0];
-                    bean->sni = Node2QString(proxy["sni"]);
-
-                    auto auth_str = FIRST_OR_SECOND(Node2QString(proxy["auth_str"]), Node2QString(proxy["auth-str"]));
-                    auto auth = Node2QString(proxy["auth"]);
-                    if (!auth_str.isEmpty()) {
-                        bean->authPayloadType = NekoGui_fmt::QUICBean::hysteria_auth_string;
-                        bean->authPayload = auth_str;
-                    }
-                    if (!auth.isEmpty()) {
-                        bean->authPayloadType = NekoGui_fmt::QUICBean::hysteria_auth_base64;
-                        bean->authPayload = auth;
-                    }
-                    bean->obfsPassword = Node2QString(proxy["obfs"]);
-
-                    if (Node2Bool(proxy["disable_mtu_discovery"]) || Node2Bool(proxy["disable-mtu-discovery"])) bean->disableMtuDiscovery = true;
-                    bean->streamReceiveWindow = Node2Int(proxy["recv-window"]);
-                    bean->connectionReceiveWindow = Node2Int(proxy["recv-window-conn"]);
-
-                    auto upMbps = Node2QString(proxy["up"]).split(" ")[0].toInt();
-                    auto downMbps = Node2QString(proxy["down"]).split(" ")[0].toInt();
-                    if (upMbps > 0) bean->uploadMbps = upMbps;
-                    if (downMbps > 0) bean->downloadMbps = downMbps;
-                } else if (type == "hysteria2") {
-                    auto bean = ent->QUICBean();
-
-                    bean->allowInsecure = Node2Bool(proxy["skip-cert-verify"]);
-                    bean->caText = Node2QString(proxy["ca-str"]);
-                    bean->sni = Node2QString(proxy["sni"]);
-
-                    bean->obfsPassword = Node2QString(proxy["obfs-password"]);
-                    bean->password = Node2QString(proxy["password"]);
-
-                    bean->uploadMbps = Node2QString(proxy["up"]).split(" ")[0].toInt();
-                    bean->downloadMbps = Node2QString(proxy["down"]).split(" ")[0].toInt();
-                } else if (type == "tuic") {
-                    auto bean = ent->QUICBean();
-
-                    bean->uuid = Node2QString(proxy["uuid"]);
-                    bean->password = Node2QString(proxy["password"]);
-
-                    if (Node2Int(proxy["heartbeat-interval"]) != 0) {
-                        bean->heartbeat = Int2String(Node2Int(proxy["heartbeat-interval"])) + "ms";
-                    }
-
-                    bean->udpRelayMode = Node2QString(proxy["udp-relay-mode"], bean->udpRelayMode);
-                    bean->congestionControl = Node2QString(proxy["congestion-controller"], bean->congestionControl);
-
-                    bean->disableSni = Node2Bool(proxy["disable-sni"]);
-                    bean->zeroRttHandshake = Node2Bool(proxy["reduce-rtt"]);
-                    bean->allowInsecure = Node2Bool(proxy["skip-cert-verify"]);
-                    bean->alpn = Node2QStringList(proxy["alpn"]).join(",");
-                    bean->caText = Node2QString(proxy["ca-str"]);
-                    bean->sni = Node2QString(proxy["sni"]);
-
-                    if (Node2Bool(proxy["udp-over-stream"])) bean->uos = true;
-
-                    if (!Node2QString(proxy["ip"]).isEmpty()) {
-                        if (bean->sni.isEmpty()) bean->sni = bean->serverAddress;
-                        bean->serverAddress = Node2QString(proxy["ip"]);
-                    }
-                } else {
-                    continue;
                 }
-
-                if (needFix) RawUpdater_FixEnt(ent);
-                NekoGui::profileManager->AddProfile(ent, gid_add_to);
+    
+                // Trojan
+                if (out.type == "trojan") {
+                    ent = Configs::ProfilesRepo::NewProfile("trojan");
+                    auto ok = ent->Trojan()->ParseFromClash(out);
+                    if (!ok) continue;
+                }
+    
+                // AnyTLS
+                if (out.type == "anytls") {
+                    ent = Configs::ProfilesRepo::NewProfile("anytls");
+                    auto ok = ent->AnyTLS()->ParseFromClash(out);
+                    if (!ok) continue;
+                }
+    
+                // Hysteria
+                if (out.type == "hysteria" || out.type == "hysteria2") {
+                    ent = Configs::ProfilesRepo::NewProfile("hysteria");
+                    auto ok = ent->Hysteria()->ParseFromClash(out);
+                    if (!ok) continue;
+                }
+    
+                // TUIC
+                if (out.type == "tuic") {
+                    ent = Configs::ProfilesRepo::NewProfile("tuic");
+                    auto ok = ent->TUIC()->ParseFromClash(out);
+                    if (!ok) continue;
+                }
+    
+                // SSH
+                if (out.type == "ssh") {
+                    ent = Configs::ProfilesRepo::NewProfile("ssh");
+                    auto ok = ent->SSH()->ParseFromClash(out);
+                    if (!ok) continue;
+                }
+    
+                if (ent == nullptr) continue;
+    
                 updated_order += ent;
             }
-        } catch (const YAML::Exception &ex) {
+        } catch (const fkyaml::exception &ex) {
             runOnUiThread([=] {
                 MessageBoxWarning("YAML Exception", ex.what());
             });
         }
-#endif
+    }
+
+    void RawUpdater::updateWireguardFileConfig(const QString& str)
+    {
+        auto ent = Configs::ProfilesRepo::NewProfile("wireguard");
+        auto ok = ent->Wireguard()->ParseFromLink(str);
+        if (!ok) return;
+        updated_order += ent;
+    }
+
+    void RawUpdater::updateSIP008(const QString& str)
+    {
+        auto json = QString2QJsonObject(str);
+
+        for (const auto& o : json["servers"].toArray())
+        {
+            auto out = o.toObject();
+            if (out.isEmpty())
+            {
+                MW_show_log("invalid server object");
+                continue;
+            }
+
+            auto ent = Configs::ProfilesRepo::NewProfile("shadowsocks");
+            auto ok = ent->ShadowSocks()->ParseFromSIP008(out);
+            if (!ok) continue;
+            updated_order += ent;
+        }
     }
 
     // 在新的 thread 运行
@@ -571,6 +679,7 @@ namespace NekoGui_sub {
             auto items = QStringList{
                 QObject::tr("Add profiles to this group"),
                 QObject::tr("Create new subscription group"),
+                QObject::tr("Import HTTP proxy profile"),
             };
             bool ok;
             auto a = QInputDialog::getItem(nullptr,
@@ -578,19 +687,21 @@ namespace NekoGui_sub {
                                            QObject::tr("%1\nHow to update?").arg(content),
                                            items, 0, false, &ok);
             if (!ok) return;
-            asURL = true;
-            if (items.indexOf(a) == 1) createNewGroup = true;
+            switch (items.indexOf(a)) {
+                case 1: createNewGroup = true;
+                case 0: asURL = true; break;
+            }
         }
 
-        runOnNewThread([=] {
+        runOnNewThread([=,this] {
             auto gid = _sub_gid;
             if (createNewGroup) {
-                auto group = NekoGui::ProfileManager::NewGroup();
+                auto group = Configs::GroupsRepo::NewGroup();
                 group->name = QUrl(str).host();
                 group->url = str;
-                NekoGui::profileManager->AddGroup(group);
+                Configs::dataManager->groupsRepo->AddGroup(group);
                 gid = group->id;
-                MW_dialog_message("SubUpdater", "NewGroup");
+                MW_dialog_message(MwMessage::SubscriptionNewGroup, {});
             }
             Update(str, gid, asURL);
             emit asyncUpdateCallback(gid);
@@ -600,7 +711,7 @@ namespace NekoGui_sub {
 
     void GroupUpdater::Update(const QString &_str, int _sub_gid, bool _not_sub_as_url) {
         // 创建 rawUpdater
-        NekoGui::dataStore->imported_count = 0;
+        Configs::dataManager->settingsRepo->imported_count = 0;
         auto rawUpdater = std::make_unique<RawUpdater>();
         rawUpdater->gid_add_to = _sub_gid;
 
@@ -608,7 +719,7 @@ namespace NekoGui_sub {
         QString sub_user_info;
         bool asURL = _sub_gid >= 0 || _not_sub_as_url; // 把 _str 当作 url 处理（下载内容）
         auto content = _str.trimmed();
-        auto group = NekoGui::profileManager->GetGroup(_sub_gid);
+        auto group = Configs::dataManager->groupsRepo->GetGroup(_sub_gid);
         if (group != nullptr && group->archive) return;
 
         // 网络请求
@@ -616,7 +727,7 @@ namespace NekoGui_sub {
             auto groupName = group == nullptr ? content : group->name;
             MW_show_log(">>>>>>>> " + QObject::tr("Requesting subscription: %1").arg(groupName));
 
-            auto resp = NetworkRequestHelper::HttpGet(content);
+            auto resp = NetworkRequestHelper::HttpGet(content, Configs::dataManager->settingsRepo->sub_send_hwid);
             if (!resp.error.isEmpty()) {
                 MW_show_log("<<<<<<<< " + QObject::tr("Requesting subscription %1 error: %2").arg(groupName, resp.error + "\n" + resp.data));
                 return;
@@ -628,78 +739,105 @@ namespace NekoGui_sub {
             MW_show_log("<<<<<<<< " + QObject::tr("Subscription request fininshed: %1").arg(groupName));
         }
 
-        QList<std::shared_ptr<NekoGui::ProxyEntity>> in;          // 更新前
-        QList<std::shared_ptr<NekoGui::ProxyEntity>> out_all;     // 更新前 + 更新后
-        QList<std::shared_ptr<NekoGui::ProxyEntity>> out;         // 更新后
-        QList<std::shared_ptr<NekoGui::ProxyEntity>> only_in;     // 只在更新前有的
-        QList<std::shared_ptr<NekoGui::ProxyEntity>> only_out;    // 只在更新后有的
-        QList<std::shared_ptr<NekoGui::ProxyEntity>> update_del;  // 更新前后都有的，需要删除的新配置
-        QList<std::shared_ptr<NekoGui::ProxyEntity>> update_keep; // 更新前后都有的，被保留的旧配置
+        QList<std::shared_ptr<Configs::Profile>> in;
 
-        // 订阅解析前
         if (group != nullptr) {
-            in = group->Profiles();
             group->sub_last_update = QDateTime::currentMSecsSinceEpoch() / 1000;
             group->info = sub_user_info;
-            group->order.clear();
-            group->Save();
+            Configs::dataManager->groupsRepo->Save(group);
             //
-            if (NekoGui::dataStore->sub_clear) {
+            if (Configs::dataManager->settingsRepo->sub_clear) {
                 MW_show_log(QObject::tr("Clearing servers..."));
-                for (const auto &profile: in) {
-                    NekoGui::profileManager->DeleteProfile(profile->id);
+                if (!Configs::dataManager->profilesRepo->BatchDeleteProfiles(group->profiles, Configs::dataManager->settingsRepo->allow_stopping_active_profile)) {
+                    runOnUiThread([=] {
+                        MessageBoxWarning("Internal Error", "DB Error when deleting profiles, Please try again.");
+                    });
+                    return;
                 }
+            } else {
+                in = Configs::dataManager->profilesRepo->GetProfileBatch(group->Profiles());
             }
         }
 
-        // 解析并添加 profile
+        MW_show_log(">>>>>>>> " + QObject::tr("Processing subscription data..."));
         rawUpdater->update(content);
+        content.clear();
+        Configs::dataManager->profilesRepo->AddProfileBatch(rawUpdater->updated_order, rawUpdater->gid_add_to);
+        MW_show_log(">>>>>>>> " + QObject::tr("Process complete, applying..."));
 
         if (group != nullptr) {
-            out_all = group->Profiles();
+            QList<std::shared_ptr<Configs::Profile>> out_all;
+            out_all = Configs::dataManager->profilesRepo->GetProfileBatch(group->Profiles());;
 
             QString change_text;
 
-            if (NekoGui::dataStore->sub_clear) {
+            if (Configs::dataManager->settingsRepo->sub_clear) {
                 // all is new profile
-                for (const auto &ent: out_all) {
-                    change_text += "[+] " + ent->bean->DisplayTypeAndName() + "\n";
+                if (out_all.size() >= 1000) {
+                    change_text += "[+] " + Int2String(out_all.size()) + " profiles\n";
+                } else {
+                    for (const auto &ent: out_all) {
+                        change_text += "[+] " + ent->outbound->DisplayTypeAndName() + "\n";
+                    }
                 }
             } else {
+                QList<std::shared_ptr<Configs::Profile>> update_keep;
+                QList<std::shared_ptr<Configs::Profile>> update_del;
+                QList<std::shared_ptr<Configs::Profile>> only_out;
+                QList<std::shared_ptr<Configs::Profile>> only_in;
+                QList<std::shared_ptr<Configs::Profile>> out;
                 // find and delete not updated profile by ProfileFilter
-                NekoGui::ProfileFilter::OnlyInSrc_ByPointer(out_all, in, out);
-                NekoGui::ProfileFilter::OnlyInSrc(in, out, only_in);
-                NekoGui::ProfileFilter::OnlyInSrc(out, in, only_out);
-                NekoGui::ProfileFilter::Common(in, out, update_keep, update_del, false);
-
+                Configs::ProfileFilter::OnlyInSrc_ByPointer(out_all, in, out);
+                Configs::ProfileFilter::OnlyInSrc(in, out, only_in, false);
+                Configs::ProfileFilter::OnlyInSrc(out, in, only_out, false);
+                Configs::ProfileFilter::Common(in, out, update_keep, update_del, false);
                 QString notice_added;
                 QString notice_deleted;
-                for (const auto &ent: only_out) {
-                    notice_added += "[+] " + ent->bean->DisplayTypeAndName() + "\n";
+                if (only_out.size() < 1000)
+                {
+                    for (const auto &ent: only_out) {
+                        notice_added += "[+] " + ent->outbound->DisplayTypeAndName() + "\n";
+                    }
+                } else
+                {
+                    notice_added += QString("[+] ") + "added " + Int2String(only_out.size()) + "\n";
                 }
-                for (const auto &ent: only_in) {
-                    notice_deleted += "[-] " + ent->bean->DisplayTypeAndName() + "\n";
+                if (only_in.size() < 1000)
+                {
+                    for (const auto &ent: only_in) {
+                        notice_deleted += "[-] " + ent->outbound->DisplayTypeAndName() + "\n";
+                    }
+                } else
+                {
+                    notice_deleted += QString("[-] ") + "deleted " + Int2String(only_in.size()) + "\n";
                 }
 
+
                 // sort according to order in remote
-                group->order = {};
+                group->profiles.clear();
                 for (const auto &ent: rawUpdater->updated_order) {
                     auto deleted_index = update_del.indexOf(ent);
                     if (deleted_index >= 0) {
                         if (deleted_index >= update_keep.count()) continue; // should not happen
-                        auto ent2 = update_keep[deleted_index];
-                        group->order.append(ent2->id);
+                        const auto& ent2 = update_keep[deleted_index];
+                        group->profiles.append(ent2->id);
                     } else {
-                        group->order.append(ent->id);
+                        group->profiles.append(ent->id);
                     }
                 }
-                group->Save();
+                Configs::dataManager->groupsRepo->Save(group);
 
                 // cleanup
+                QList<int> del_ids;
                 for (const auto &ent: out_all) {
-                    if (!group->order.contains(ent->id)) {
-                        NekoGui::profileManager->DeleteProfile(ent->id);
+                    if (!group->HasProfile(ent->id)) {
+                        del_ids.append(ent->id);
                     }
+                }
+                if (!Configs::dataManager->profilesRepo->BatchDeleteProfiles(del_ids, Configs::dataManager->settingsRepo->allow_stopping_active_profile)) {
+                    runOnUiThread([=] {
+                       MessageBoxWarning("Internal error", "DB Error when deleting profiles, data may be corrupted");
+                    });
                 }
 
                 change_text = "\n" + QObject::tr("Added %1 profiles:\n%2\nDeleted %3 Profiles:\n%4")
@@ -711,13 +849,13 @@ namespace NekoGui_sub {
             }
 
             MW_show_log("<<<<<<<< " + QObject::tr("Change of %1:").arg(group->name) + "\n" + change_text);
-            MW_dialog_message("SubUpdater", "finish-dingyue");
+            MW_dialog_message(MwMessage::SubscriptionFinished, {MwArg::Quiet});
         } else {
-            NekoGui::dataStore->imported_count = rawUpdater->updated_order.count();
-            MW_dialog_message("SubUpdater", "finish");
+            Configs::dataManager->settingsRepo->imported_count = rawUpdater->updated_order.count();
+            MW_dialog_message(MwMessage::SubscriptionFinished, {});
         }
     }
-} // namespace NekoGui_sub
+} // namespace Subscription
 
 bool UI_update_all_groups_Updating = false;
 
@@ -730,7 +868,7 @@ void serialUpdateSubscription(const QList<int> &groupsTabOrder, int _order, bool
     }
 
     // calculate this group
-    auto group = NekoGui::profileManager->GetGroup(groupsTabOrder[_order]);
+    auto group = Configs::dataManager->groupsRepo->GetGroup(groupsTabOrder[_order]);
     if (group == nullptr || should_skip_group(group)) {
         serialUpdateSubscription(groupsTabOrder, _order + 1, onlyAllowed);
         return;
@@ -739,7 +877,7 @@ void serialUpdateSubscription(const QList<int> &groupsTabOrder, int _order, bool
     int nextOrder = _order + 1;
     while (nextOrder < groupsTabOrder.size()) {
         auto nextGid = groupsTabOrder[nextOrder];
-        auto nextGroup = NekoGui::profileManager->GetGroup(nextGid);
+        auto nextGroup = Configs::dataManager->groupsRepo->GetGroup(nextGid);
         if (!should_skip_group(nextGroup)) {
             break;
         }
@@ -748,7 +886,7 @@ void serialUpdateSubscription(const QList<int> &groupsTabOrder, int _order, bool
 
     // Async update current group
     UI_update_all_groups_Updating = true;
-    NekoGui_sub::groupUpdater->AsyncUpdate(group->url, group->id, [=] {
+    Subscription::groupUpdater->AsyncUpdate(group->url, group->id, [=] {
         serialUpdateSubscription(groupsTabOrder, nextOrder, onlyAllowed);
     });
 }
@@ -759,6 +897,6 @@ void UI_update_all_groups(bool onlyAllowed) {
         return;
     }
 
-    auto groupsTabOrder = NekoGui::profileManager->groupsTabOrder;
+    auto groupsTabOrder = Configs::dataManager->groupsRepo->GetGroupsTabOrder();
     serialUpdateSubscription(groupsTabOrder, 0, onlyAllowed);
 }

@@ -1,76 +1,60 @@
 #include "include/sys/Process.hpp"
-#include "include/global/NekoGui.hpp"
+#include "include/global/Configs.hpp"
 
 #include <QTimer>
 #include <QDir>
 #include <QApplication>
-#include <QElapsedTimer>
 
-namespace NekoGui_sys {
 
-    CoreProcess::CoreProcess() : QProcess() {
-        this->env = QProcessEnvironment::systemEnvironment().toStringList();
-    }
 
+#include "include/ui/mainwindow.h"
+
+namespace Configs_sys {
     CoreProcess::~CoreProcess() {
     }
 
     void CoreProcess::Kill() {
-        if (killed) return;
-        killed = true;
-
-        if (!crashed) {
-            kill();
-            waitForFinished(500);
-        }
+        kill();
+        waitForFinished();
     }
 
-    //
-
-    QElapsedTimer coreRestartTimer;
-
-    CoreProcess::CoreProcess(const QString &core_path, const QStringList &args) : QProcess() {
+    CoreProcess::CoreProcess(const QString &core_path, const QString &socketName, bool debugMode)
+        : m_socketName(socketName), m_debugMode(debugMode) {
         program = core_path;
-        arguments = args;
 
         connect(this, &QProcess::readyReadStandardOutput, this, [&]() {
             auto log = readAllStandardOutput();
-            if (!NekoGui::dataStore->core_running) {
-                if (log.contains("grpc server listening")) {
-                    // The core really started
-                    NekoGui::dataStore->core_running = true;
-                    if (start_profile_when_core_is_up >= 0) {
-                        MW_dialog_message("ExternalProcess", "CoreStarted," + Int2String(start_profile_when_core_is_up));
-                        start_profile_when_core_is_up = -1;
-                    }
-                } else if (log.contains("failed to serve")) {
-                    // The core failed to start
-                    kill();
-                }
+            if (log.contains("Extra process exited unexpectedly"))
+            {
+                MW_show_log("Extra Core exited, stopping profile...");
+                MW_dialog_message(MwMessage::CoreCrashed, {});
             }
-            if (logCounter.fetchAndAddRelaxed(log.count("\n")) > NekoGui::dataStore->max_log_line) return;
+            if (logCounter.fetchAndAddRelaxed(log.count("\n")) > Configs::dataManager->settingsRepo->max_log_line) return;
             MW_show_log(log);
         });
         connect(this, &QProcess::readyReadStandardError, this, [&]() {
             auto log = readAllStandardError().trimmed();
             MW_show_log(log);
         });
-        connect(this, &QProcess::errorOccurred, this, [&](QProcess::ProcessError error) {
-            if (error == QProcess::ProcessError::FailedToStart) {
+        connect(this, &QProcess::errorOccurred, this, [&](ProcessError error) {
+            if (error == FailedToStart) {
                 failed_to_start = true;
                 MW_show_log("start core error occurred: " + errorString() + "\n");
             }
         });
-        connect(this, &QProcess::stateChanged, this, [&](QProcess::ProcessState state) {
-            if (state == QProcess::NotRunning) {
-                NekoGui::dataStore->core_running = false;
+        connect(this, &QProcess::stateChanged, this, [&](ProcessState state) {
+            if (state == NotRunning) {
+                Configs::dataManager->settingsRepo->core_running = false;
+                qDebug() << "Core stated changed to not running";
             }
 
-            if (!NekoGui::dataStore->prepare_exit && state == QProcess::NotRunning) {
+            if (!Configs::dataManager->settingsRepo->prepare_exit && state == NotRunning) {
                 if (failed_to_start) return; // no retry
                 if (restarting) return;
 
-                MW_dialog_message("ExternalProcess", "CoreCrashed");
+                MW_show_log("[Fatal] " + QObject::tr("Core exited, cleaning up..."));
+
+                GetMainWindow()->profile_stop(true, true);
 
                 // Retry rate limit
                 if (coreRestartTimer.isValid()) {
@@ -84,21 +68,22 @@ namespace NekoGui_sys {
                 }
 
                 // Restart
-                start_profile_when_core_is_up = NekoGui::dataStore->started_id;
-                MW_show_log("[ERROR] " + QObject::tr("Core exited, restarting."));
-                setTimeout([=] { Restart(); }, this, 1000);
+                start_profile_when_core_is_up = Configs::dataManager->settingsRepo->started_id;
+                MW_show_log("[Warn] " + QObject::tr("Restarting the core ..."));
+                setTimeout([=,this] { Restart(); }, this, 200);
             }
         });
     }
 
     void CoreProcess::Start() {
-        show_stderr = false;
         if (started) return;
         started = true;
 
-        setEnvironment(env);
-        start(program, arguments);
-        write((NekoGui::dataStore->core_token + "\n").toUtf8());
+        auto env = QProcessEnvironment::systemEnvironment();
+        env.insert("THRONE_CORE_SOCKET", m_socketName);
+        if (m_debugMode) env.insert("THRONE_CORE_DEBUG", "1");
+        setProcessEnvironment(env);
+        start(program, {});
     }
 
     void CoreProcess::Restart() {
@@ -110,4 +95,4 @@ namespace NekoGui_sys {
         restarting = false;
     }
 
-} // namespace NekoGui_sys
+} // namespace Configs_sys

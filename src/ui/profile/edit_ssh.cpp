@@ -1,8 +1,6 @@
 #include "include/ui/profile/edit_ssh.h"
 #include <QFileDialog>
 
-#include "include/configs/proxy/SSHBean.h"
-
 EditSSH::EditSSH(QWidget *parent) : QWidget(parent), ui(new Ui::EditSSH) {
     ui->setupUi(this);
 }
@@ -11,20 +9,20 @@ EditSSH::~EditSSH() {
     delete ui;
 }
 
-void EditSSH::onStart(std::shared_ptr<NekoGui::ProxyEntity> _ent) {
+void EditSSH::onStart(std::shared_ptr<Configs::Profile> _ent) {
     this->ent = _ent;
-    auto bean = this->ent->SSHBean();
+    auto outbound = this->ent->SSH();
 
-    ui->user->setText(bean->user);
-    ui->password->setText(bean->password);
-    ui->private_key->setText(bean->privateKey);
-    ui->private_key_path->setText(bean->privateKeyPath);
-    ui->private_key_pass->setText(bean->privateKeyPass);
-    ui->host_key->setText(bean->hostKey.join(","));
-    ui->host_key_algs->setText(bean->hostKeyAlgs.join(","));
-    ui->client_version->setText(bean->clientVersion);
+    ui->user->setText(outbound->user);
+    ui->password->setText(outbound->password);
+    ui->private_key->setText(outbound->private_key);
+    ui->private_key_path->setText(outbound->private_key_path);
+    ui->private_key_pass->setText(outbound->private_key_passphrase);
+    ui->host_key->setText(outbound->host_key.join(","));
+    ui->host_key_algs->setText(outbound->host_key_algorithms.join(","));
+    ui->client_version->setText(outbound->client_version);
 
-    connect(ui->choose_pk, &QPushButton::clicked, this, [=] {
+    connect(ui->choose_pk, &QPushButton::clicked, this, [=,this] {
         auto fn = QFileDialog::getOpenFileName(this, QObject::tr("Select"), QDir::currentPath(),
                                                "", nullptr, QFileDialog::Option::ReadOnly);
         if (!fn.isEmpty()) {
@@ -34,18 +32,18 @@ void EditSSH::onStart(std::shared_ptr<NekoGui::ProxyEntity> _ent) {
 }
 
 bool EditSSH::onEnd() {
-    auto bean = this->ent->SSHBean();
+    auto outbound = this->ent->SSH();
 
-    bean->user = ui->user->text();
-    bean->password = ui->password->text();
-    bean->privateKey = ui->private_key->toPlainText();
-    bean->privateKeyPath = ui->private_key_path->text();
-    bean->privateKeyPass = ui->private_key_pass->text();
-    if (!ui->host_key->text().trimmed().isEmpty()) bean->hostKey = ui->host_key->text().split(",");
-    else bean->hostKey = {};
-    if (!ui->host_key_algs->text().trimmed().isEmpty()) bean->hostKeyAlgs = ui->host_key_algs->text().split(",");
-    else bean->hostKeyAlgs = {};
-    bean->clientVersion = ui->client_version->text();
+    outbound->user = ui->user->text();
+    outbound->password = ui->password->text();
+    outbound->private_key = ui->private_key->toPlainText();
+    outbound->private_key_path = ui->private_key_path->text();
+    outbound->private_key_passphrase = ui->private_key_pass->text();
+    if (!ui->host_key->text().trimmed().isEmpty()) outbound->host_key = ui->host_key->text().split(",");
+    else outbound->host_key = {};
+    if (!ui->host_key_algs->text().trimmed().isEmpty()) outbound->host_key_algorithms = ui->host_key_algs->text().split(",");
+    else outbound->host_key_algorithms = {};
+    outbound->client_version = ui->client_version->text();
 
     return true;
 }

@@ -4,9 +4,10 @@
 #include <QMenu>
 
 #include "3rdparty/qv2ray/v2/ui/QvAutoCompleteTextEdit.hpp"
-#include "include/global/NekoGui.hpp"
+#include "include/global/Configs.hpp"
 #include "include/ui/setting/RouteItem.h"
 #include "ui_dialog_manage_routes.h"
+#include "include/database/entities/RouteProfile.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -29,9 +30,13 @@ private:
 
     void reloadProfileItems();
 
-    QList<std::shared_ptr<NekoGui::RoutingChain>> chainList;
+    void applyImportedProfile(const std::shared_ptr<Configs::RouteProfile>& profile, bool wasOldArray);
 
-    int currentRouteProfileID = -1;
+    QList<std::shared_ptr<Configs::RouteProfile>> chainList;
+
+    std::shared_ptr<Configs::RouteProfile> currentRoute;
+
+    int tooltipID = 0;
 
     void set_dns_hijack_enability(bool enable) const;
 
@@ -46,6 +51,10 @@ public slots:
     void updateCurrentRouteProfile(int idx);
 
     void on_new_route_clicked();
+
+    void on_export_route_clicked();
+
+    void on_import_route_clicked();
 
     void on_clone_route_clicked();
 

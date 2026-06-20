@@ -1,84 +1,83 @@
 #include "include/stats/traffic/TrafficLooper.hpp"
 
-#include "include/api/gRPC.h"
+#include "include/api/RPC.h"
 #include "include/ui/mainwindow_interface.h"
 
 #include <QThread>
-#include <QJsonObject>
-#include <QJsonArray>
 #include <QJsonDocument>
 #include <QElapsedTimer>
 
-namespace NekoGui_traffic {
+#include "include/database/ProfilesRepo.h"
+#include "include/database/GroupsRepo.h"
+#include "include/database/DatabaseManager.h"
+#include "include/stats/traffic/TrafficStatsManager.hpp"
+
+
+namespace Stats {
 
     TrafficLooper *trafficLooper = new TrafficLooper;
     QElapsedTimer elapsedTimer;
 
-    TrafficData *TrafficLooper::update_stats(TrafficData *item) {
-        if (NekoGui::dataStore->disable_traffic_stats) {
-            return nullptr;
-        }
-        // last update
-        auto now = elapsedTimer.elapsed();
-        auto interval = now - item->last_update;
-        item->last_update = now;
-        if (interval <= 0) return nullptr;
-
-        // query
-        auto uplink = NekoGui_rpc::defaultClient->QueryStats(item->tag, "uplink");
-        auto downlink = NekoGui_rpc::defaultClient->QueryStats(item->tag, "downlink");
-
-        // add diff
-        item->downlink += downlink;
-        item->uplink += uplink;
-        item->downlink_rate = downlink * 1000 / interval;
-        item->uplink_rate = uplink * 1000 / interval;
-
-        // return diff
-        auto ret = new TrafficData(item->tag);
-        ret->downlink = downlink;
-        ret->uplink = uplink;
-        ret->downlink_rate = item->downlink_rate;
-        ret->uplink_rate = item->uplink_rate;
-        return ret;
-    }
-
     void TrafficLooper::UpdateAll() {
-        if (NekoGui::dataStore->disable_traffic_stats) {
+        if (Configs::dataManager->settingsRepo->disable_traffic_stats) {
             return;
         }
-        std::map<std::string, TrafficData *> updated; // tag to diff
-        for (const auto &item: this->items) {
-            auto data = item.get();
-            auto diff = updated[data->tag];
-            // 避免重复查询一个 outbound tag
-            if (diff == nullptr) {
-                diff = update_stats(data);
-                updated[data->tag] = diff;
-            } else {
-                data->uplink += diff->uplink;
-                data->downlink += diff->downlink;
-                data->uplink_rate = diff->uplink_rate;
-                data->downlink_rate = diff->downlink_rate;
+
+        auto resp = API::defaultClient->QueryStats();
+        const auto now = elapsedTimer.elapsed();
+
+        proxy->uplink_rate = 0;
+        proxy->downlink_rate = 0;
+
+        // For each chain group, read the matched-outbound's delta-since-last-query
+        // and credit it to every user-visible profile in the chain. Aggregate
+        // rates from all groups into the proxy entry for the status bar.
+        for (auto& group : groups) {
+            const auto tagKey = group.watchTag.toStdString();
+            if (!resp.ups.contains(tagKey)) continue;
+            const auto interval = now - group.last_update;
+            group.last_update = now;
+            if (interval <= 0) continue;
+            const auto up = resp.ups.at(tagKey);
+            const auto down = resp.downs.at(tagKey);
+            for (auto& profile : group.profiles) {
+                profile->traffic_uplink += up;
+                profile->traffic_downlink += down;
+                // Mirror the per-profile crediting into the time-series module.
+                trafficStatsManager->AddConfigDelta(profile->id, up, down);
             }
+            group.uplink_rate = static_cast<double>(up) * 1000.0 / static_cast<double>(interval);
+            group.downlink_rate = static_cast<double>(down) * 1000.0 / static_cast<double>(interval);
+            proxy->uplink_rate += group.uplink_rate;
+            proxy->downlink_rate += group.downlink_rate;
         }
-        updated[direct->tag] = update_stats(direct);
-        //
-        for (const auto &pair: updated) {
-            delete pair.second;
+
+        // direct: not part of any chain group, tracked on its own for the
+        // status-bar split.
+        direct->uplink_rate = 0;
+        direct->downlink_rate = 0;
+        const std::string directTag = "direct";
+        if (resp.ups.contains(directTag)) {
+            const auto interval = now - direct_last_update;
+            direct_last_update = now;
+            if (interval > 0) {
+                const auto up = resp.ups.at(directTag);
+                const auto down = resp.downs.at(directTag);
+                direct->uplink_rate = static_cast<double>(up) * 1000.0 / static_cast<double>(interval);
+                direct->downlink_rate = static_cast<double>(down) * 1000.0 / static_cast<double>(interval);
+                trafficStatsManager->AddConfigDelta(DIRECT_STAT_PROFILE_ID, up, down);
+            }
         }
     }
 
     void TrafficLooper::Loop() {
-        if (NekoGui::dataStore->disable_traffic_stats) {
-            return;
-        }
         elapsedTimer.start();
         while (true) {
-            auto sleep_ms = NekoGui::dataStore->traffic_loop_interval;
-            if (sleep_ms < 500 || sleep_ms > 5000) sleep_ms = 1000;
-            QThread::msleep(sleep_ms);
-            if (NekoGui::dataStore->traffic_loop_interval == 0) continue; // user disabled
+            QThread::msleep(1000); // refresh every one second
+
+            if (Configs::dataManager->settingsRepo->disable_traffic_stats) {
+                continue;
+            }
 
             // profile start and stop
             if (!loop_enabled) {
@@ -90,6 +89,11 @@ namespace NekoGui_traffic {
                         m->refresh_status("STOP");
                     });
                 }
+                runOnUiThread([=]
+                {
+                   auto m = GetMainWindow();
+                   m->update_traffic_graph(0, 0, 0, 0);
+                });
                 continue;
             } else {
                 // 开始
@@ -106,17 +110,60 @@ namespace NekoGui_traffic {
             loop_mutex.unlock();
 
             // post to UI
-            runOnUiThread([=] {
+            runOnUiThread([=,this] {
                 auto m = GetMainWindow();
                 if (proxy != nullptr) {
-                    m->refresh_status(QObject::tr("Proxy: %1\nDirect: %2").arg(proxy->DisplaySpeed(), direct->DisplaySpeed()));
+                    m->refresh_status(QObject::tr("Proxy: %1\nDirect: %2").arg(DisplaySpeed(proxy), DisplaySpeed(direct)));
+                    m->update_traffic_graph(proxy->downlink_rate, proxy->uplink_rate, direct->downlink_rate, direct->uplink_rate);
                 }
-                for (const auto &item: items) {
-                    if (item->id < 0) continue;
-                    m->refresh_proxy_list(item->id);
+                for (const auto& group : groups) {
+                    for (const auto& profile : group.profiles) {
+                        m->refresh_proxy_list({profile->id});
+                        Configs::dataManager->profilesRepo->SaveTraffic(profile);
+                    }
                 }
             });
         }
     }
 
-} // namespace NekoGui_traffic
+    void TrafficLooper::SetChainGroups(const QList<Configs::TrafficChainGroup>& configGroups) {
+        proxy = std::make_shared<TrafficLooperEntry>();
+        proxy->tag = "proxy";
+        direct = std::make_shared<TrafficLooperEntry>();
+        direct->tag = "direct";
+
+        // Seed last_update to "now" so the first delta lands against the next
+        // tick rather than against time zero — otherwise the first rate sample
+        // gets divided by however long the app has been up.
+        const auto now = elapsedTimer.isValid() ? elapsedTimer.elapsed() : 0;
+
+        groups.clear();
+        for (const auto& configGroup : configGroups) {
+            if (configGroup.watchTag.isEmpty() || configGroup.profiles.isEmpty()) continue;
+            TrafficLooperGroup g;
+            g.watchTag = configGroup.watchTag;
+            g.profiles = configGroup.profiles;
+            g.last_update = now;
+            groups.append(g);
+        }
+        direct_last_update = now;
+
+        // Snapshot reference metadata for the statistics module so per-config
+        // history stays meaningful even after a profile is renamed or removed.
+        trafficStatsManager->EnsureDirectMeta();
+        for (const auto& g : groups) {
+            for (const auto& p : g.profiles) {
+                if (!p || p->id < 0) continue;
+                QString groupName;
+                if (const auto grp = Configs::dataManager->groupsRepo->GetGroup(p->gid)) groupName = grp->name;
+                trafficStatsManager->SnapshotConfigMeta(
+                    p->id,
+                    p->outbound ? p->outbound->DisplayName() : p->name,
+                    groupName,
+                    p->type,
+                    p->outbound ? p->outbound->DisplayAddress() : QString());
+            }
+        }
+    }
+
+} // namespace Stats

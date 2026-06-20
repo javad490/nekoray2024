@@ -3,8 +3,8 @@
 #include <QWidget>
 #include <QListWidgetItem>
 
-#include "include/dataStore/Database.hpp"
 #include "ui_GroupItem.h"
+#include "include/database/entities/Group.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -16,13 +16,13 @@ class GroupItem : public QWidget {
     Q_OBJECT
 
 public:
-    explicit GroupItem(QWidget *parent, const std::shared_ptr<NekoGui::Group> &ent, QListWidgetItem *item);
+    explicit GroupItem(QWidget *parent, const std::shared_ptr<Configs::Group> &ent, QListWidgetItem *item);
 
     ~GroupItem() override;
 
     void refresh_data();
 
-    std::shared_ptr<NekoGui::Group> ent;
+    std::shared_ptr<Configs::Group> ent;
     QListWidgetItem *item;
 
 private:

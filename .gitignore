@@ -70,7 +70,7 @@ Thumbs.db
 *.exe
 
 # Custom
-/nekoray
+/Throne
 /build
 CMakeLists.txt.user*
 /cmake-build-*
@@ -86,3 +86,5 @@ CMakeLists.txt.user*
 .vs
 out
 /libs
+srslist.h
+.claude

@@ -1,8 +1,8 @@
-#ifndef DIALOG_BASIC_SETTINGS_H
-#define DIALOG_BASIC_SETTINGS_H
+#pragma once
 
 #include <QDialog>
 #include <QJsonObject>
+#include <QTimer>
 #include "ui_dialog_basic_settings.h"
 
 namespace Ui {
@@ -24,16 +24,20 @@ public slots:
 private:
     Ui::DialogBasicSettings *ui;
 
+    void applyRegexHighlighting();
+
     struct {
         QString custom_inbound;
         bool needRestart = false;
+        bool updateDisableTray = false;
+        bool updateTrayIcon = false;
+        bool updateSystemDns = false;
+        bool updateMaxLogLines = false;
+        bool updateDisableAdmin = false;
     } CACHE;
 
 private slots:
-
-    void on_set_custom_icon_clicked();
-
     void on_core_settings_clicked();
+    void on_backup_create_clicked();
+    void on_backup_restore_clicked();
 };
-
-#endif // DIALOG_BASIC_SETTINGS_H

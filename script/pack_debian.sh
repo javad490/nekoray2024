@@ -1,30 +1,32 @@
 #!/bin/bash
 set -e
 
-version="$1"
+VERSION="$1"
+ARCH="$2"
 
-mkdir -p nekoray/DEBIAN
-mkdir -p nekoray/opt
-cp -r linux64 nekoray/opt
-mv nekoray/opt/linux64 nekoray/opt/nekoray
+mkdir -p Throne/DEBIAN
+mkdir -p Throne/opt
+cp -r linux-$ARCH$([[ $3 == "systemqt" ]] && echo "-system-qt") Throne/opt
+mv Throne/opt/linux-$ARCH$([[ $3 == "systemqt" ]] && echo "-system-qt") Throne/opt/Throne
+rm Throne/opt/Throne/Throne.debug
 
 # basic
-cat >nekoray/DEBIAN/control <<-EOF
-Package: nekoray
-Version: $version
-Architecture: amd64
+cat >Throne/DEBIAN/control <<-EOF
+Package: Throne
+Version: $VERSION
+Architecture: $ARCH
 Maintainer: Mahdi Mahdi.zrei@gmail.com
-Depends: desktop-file-utils
+Depends: desktop-file-utils$([[ $3 == "systemqt" ]] && echo ", libqt6core6, libqt6gui6, libqt6network6, libqt6widgets6, qt6-qpa-plugins, qt6-wayland, qt6-gtk-platformtheme, qt6-xdgdesktopportal-platformtheme, libxcb-cursor0, fonts-noto-color-emoji")
 Description: Qt based cross-platform GUI proxy configuration manager (backend: sing-box)
 EOF
 
-cat >nekoray/DEBIAN/postinst <<-EOF
-cat >/usr/share/applications/nekoray.desktop<<-END
+cat >Throne/DEBIAN/postinst <<-EOF
+cat >/usr/share/applications/Throne.desktop<<-END
 [Desktop Entry]
-Name=nekoray
+Name=Throne
 Comment=Qt based cross-platform GUI proxy configuration manager (backend: sing-box)
-Exec=sh -c "PATH=/opt/nekoray:\$PATH /opt/nekoray/nekoray -appdata"
-Icon=/opt/nekoray/nekobox.png
+Exec=sh -c "PATH=/opt/Throne:\$PATH /opt/Throne/Throne -appdata"
+Icon=/opt/Throne/Throne.png
 Terminal=false
 Type=Application
 Categories=Network;Application;
@@ -33,8 +35,8 @@ END
 update-desktop-database
 EOF
 
-sudo chmod 0755 nekoray/DEBIAN/postinst
+sudo chmod 0755 Throne/DEBIAN/postinst
 
 # desktop && PATH
 
-sudo dpkg-deb --build nekoray
+sudo dpkg-deb --build Throne

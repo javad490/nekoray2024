@@ -1,15 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(qhotkey
-    VERSION 1.5.0
-    DESCRIPTION "Global hotkey library for Qt software"
-    HOMEPAGE_URL "https://skycoder42.github.io/QHotkey/"
-    LANGUAGES CXX)
-
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.8.0 COMPONENTS Core Gui REQUIRED)
+find_package(Qt6 COMPONENTS Core Gui REQUIRED)
 
 # General settings
 set(CPACK_PACKAGE_VENDOR "Skycoder42")
